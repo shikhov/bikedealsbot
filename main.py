@@ -44,9 +44,9 @@ class tgHandler(webapp2.RequestHandler):
                 if rg:
                     itemurl = urllib.quote(rg.group(1).encode('utf-8'), ':/%')
                     logging.info(itemurl)
-                    opener = urllib2.build_opener()
-                    opener.addheaders.append(('Cookie', 'countryCode=RU; languageCode=en; currencyCode=RUB'))
-                    content = opener.open(itemurl).read()
+                    headers = {'User-Agent': 'Mozilla/5.0', 'Cookie': 'countryCode=RU; languageCode=en; currencyCode=RUB'}
+                    request = urllib2.Request(itemurl, None, headers)
+                    content = urllib2.urlopen(request).read()
                     matches = re.search(ur'<li class="crcPDPTitle">.+?<meta itemprop="name" content="(.+?)".+?crcPDPPriceCurrent.+?<meta itemprop="priceCurrency" content="(\w+)".+?(\d+)<span class="decimal">(.+?(\d+)<span class="decimal">)?', content, re.DOTALL)
                     if matches:
                         if matches.group(5):
