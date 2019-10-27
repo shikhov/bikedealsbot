@@ -65,7 +65,6 @@ class tgHandler(webapp2.RequestHandler):
 
             price = None
             itemname = None
-            priceint = None
 
             if text:
                 if chat_type == 'private':
