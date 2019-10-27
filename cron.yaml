@@ -1,0 +1,4 @@
+cron:
+- description: "price checking"
+  url: /checkprices
+  schedule: every 3 hours

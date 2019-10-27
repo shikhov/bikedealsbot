@@ -9,6 +9,3 @@ handlers:
 libraries:
 - name: webapp2
   version: "2.5.2"
-
-skip_files:
-- example.config.py

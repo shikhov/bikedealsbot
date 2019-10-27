@@ -2,12 +2,15 @@
 
 import json
 import logging
-import urllib
-import urllib2
-import webapp2
 import re
 import sys
-import multipart
+import urllib
+import urllib2
+import ast
+from datetime import datetime
+
+import webapp2
+from google.appengine.ext import ndb
 
 from config import TOKEN
 
@@ -16,7 +19,26 @@ APIURL = 'https://api.telegram.org/bot'
 reload(sys)
 sys.setdefaultencoding('utf8')
 
-def tgReply(msg, chat_id, reply_to):
+class Prod(ndb.Model):
+    prodid = ndb.StringProperty()
+    chatid = ndb.IntegerProperty()
+    url = ndb.StringProperty()
+    name = ndb.StringProperty()
+    price = ndb.IntegerProperty()
+    currency = ndb.StringProperty()
+    lastcheck = ndb.StringProperty()
+    store = ndb.StringProperty()
+    errors = ndb.IntegerProperty(default=0)
+    history = ndb.StringProperty(default='')
+
+class User(ndb.Model):
+    chatid = ndb.IntegerProperty()
+    username = ndb.StringProperty()
+    first_name = ndb.StringProperty()
+    last_name = ndb.StringProperty()
+    enable = ndb.BooleanProperty()
+
+def tgMsg(msg, chat_id, reply_to=0):
     urllib2.urlopen(APIURL + TOKEN + '/sendMessage', urllib.urlencode({
         'chat_id': chat_id,
         'text': msg.encode('utf-8'),
@@ -32,28 +54,49 @@ class tgHandler(webapp2.RequestHandler):
 
         if 'message' in body:
             message = body['message']
+            fr = message.get('from')
             message_id = message['message_id']
             chat_id = message['chat']['id']
+            chat_type = message['chat']['type']
+            username = fr.get('username')
+            first_name = fr.get('first_name')
+            last_name = fr.get('last_name')
             text = message.get('text')
 
             price = None
             itemname = None
+            priceint = None
 
             if text:
+                if chat_type == 'private':
+                    if text == '/start':
+                        tgMsg(msg=u'️Присылайте мне ссылки на товары из chainreactioncycles.com, а я буду отслеживать их цены 😉', chat_id=chat_id)
+                        user = User.get_or_insert(str(chat_id))
+                        user.chatid = chat_id
+                        user.username = username
+                        user.first_name = first_name
+                        user.last_name = last_name
+                        user.enable = True
+                        user.put()
+
+                    if text == '/list':
+                        tgMsg(msg=getlist(chat_id), chat_id=chat_id)
+
+                    if text.startswith('/del_'):
+                        deleteprod(text)
+                        tgMsg(msg=u'️Удалено\n', chat_id=chat_id)
+
                 rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+)', text)
                 if rg:
-                    itemurl = urllib.quote(rg.group(1).encode('utf-8'), ':/%')
-                    logging.info(itemurl)
-                    headers = {'User-Agent': 'Mozilla/5.0', 'Cookie': 'countryCode=RU; languageCode=en; currencyCode=RUB'}
-                    request = urllib2.Request(itemurl, None, headers)
-                    content = urllib2.urlopen(request).read()
-                    matches = re.search(ur'<li class="crcPDPTitle">.+?<meta itemprop="name" content="(.+?)".+?crcPDPPriceCurrent.+?<meta itemprop="priceCurrency" content="(\w+)".+?(\d+)<span class="decimal">(.+?(\d+)<span class="decimal">)?', content, re.DOTALL)
-                    if matches:
-                        if matches.group(5):
-                            price = matches.group(3) + ' - ' + matches.group(5) + ur' р.'
-                        else:
-                            price = matches.group(3) + ur' р.'
-                        itemname = matches.group(1)
+                    product = parseCRC(rg.group(1))
+                    if product:
+                        itemname = product['name']
+                        price = product['textprice']
+
+                        if chat_type == 'private':
+                            addprod(product, chat_id, message_id)
+                    elif chat_type == 'private':
+                        tgMsg(msg=u'Не смог найти цену 😧\n', chat_id=chat_id, reply_to=message_id)
 
                 rg = re.search(ur'(https?://www\.wiggle\.(co\.uk|com|ru)/)(\S+)', text)
                 if rg:
@@ -103,18 +146,131 @@ class tgHandler(webapp2.RequestHandler):
                         itemname = matches.group(1)
                         price = matches.group(2)
 
-                if price and itemname:
+                if price and itemname and chat_type != 'private':
                     logging.info('name: ' + itemname)
                     logging.info('price: ' + price)
-                    tgReply(msg=itemname + '\n' + price, chat_id=chat_id, reply_to=message_id)
+                    tgMsg(msg=itemname + '\n' + price, chat_id=chat_id, reply_to=message_id)
 
-                rg = re.search(ur'(https?://www\.gpsies\.com/.+?\?fileId=(\w+))', text)
-                if rg:
-                    fileid = rg.group(2)
-                    dfile = urllib.urlopen('http://www.gpsies.com/download.do?fileId='+fileid).read()
-                    multipart.post_multipart(APIURL + TOKEN + '/sendDocument', [('chat_id', chat_id), ('reply_to_message_id', message_id)], [('document', 'track.gpx', dfile)])
+
+def parseCRC(url):
+    headerslist = {
+        'RUB': {'User-Agent': 'Mozilla/5.0', 'Cookie': 'countryCode=RU; languageCode=en; currencyCode=RUB'},
+        'GBP': {'User-Agent': 'Mozilla/5.0', 'Cookie': 'countryCode=GB; languageCode=en; currencyCode=GBP'}}
+
+    url = urllib.quote(url.encode('utf-8'), ':/%')
+
+    for currency in headerslist:
+        request = urllib2.Request(url, None, headerslist[currency])
+        content = urllib2.urlopen(request).read()
+        matches = re.search(ur'window\.universal_variable\s+=\s+(.+?)</script>', content, re.DOTALL)
+        if matches:
+            universal = ast.literal_eval(matches.group(1))
+            if 'product' in universal:
+                product = universal['product']
+                product['currency'] = currency
+                product['store'] = 'CRC'
+                product['url'] = 'https://www.chainreactioncycles.com' + product['url']
+                product['name'] = product['manufacturer'] + ' ' + product['name']
+                textprice = str(product['price'])
+                product['lowprice'] = int(re.sub('^(\d+).*', r'\1', textprice))
+                textprice = re.sub('\.\d+', '', textprice)
+                textprice = re.sub('-', ' - ', textprice)
+                product['textprice'] = textprice + ' ' + product['currency']
+                return product
+    return None
+
+class checkHandler(webapp2.RequestHandler):
+    def get(self):
+        msgs = {}
+        prices = {}
+        enabled_users = {}
+
+        for user in User.query(User.enable == True).fetch():
+            enabled_users[user.chatid] = 'foo'
+
+        for prod in Prod.query().fetch():
+            if prod.chatid in enabled_users:
+                changed = False
+
+                if prod.prodid in prices and prices[prod.prodid] < prod.price:
+                    changed = True
+                else:
+                    price = getprice(prod.url)
+                    prices[prod.prodid] = price
+                    if price < prod.price:
+                        changed = True
+
+                if prices[prod.prodid] == sys.maxint:
+                    prod.errors += 1
+                else:
+                    prod.errors = 0
+
+                if changed:
+                    msg = '<a href="' + prod.url + '">' + prod.name + '</a>' + '\n<b>' + str(prices[prod.prodid]) + '</b> ' + prod.currency + u' (было: ' + str(prod.price) + ' ' + prod.currency + ')'
+                    if prod.chatid in msgs:
+                        msgs[prod.chatid] += '\n\n' + msg
+                    else:
+                        msgs[prod.chatid] = msg
+                    prod.price = price
+                    prod.history += str(price) + ' (' + datetime.now().strftime('%d.%m.%Y') + ')\n'
+
+                prod.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
+                prod.put()
+
+        for chatid in msgs:
+            try:
+                tgMsg('💥 Снижение цены!\n\n' + msgs[chatid], chatid)
+            except urllib2.HTTPError as e:
+                if e.reason == 'Forbidden':
+                    disableuser(chatid)
+
+
+def getlist(chatid):
+    prods = Prod.query(Prod.chatid == chatid).fetch()
+    if len(prods) > 0:
+        msg = 'Отслеживаемые товары:\n\n'
+        for prod in prods:
+            warn = '' if prod.errors == 0 else '⚠️ Ошибка (возможно, ссылка неактуальна)\n'
+            msg += '<a href="' + prod.url + '">' + prod.name + '</a>\n' + warn + 'Удалить: /del_' + str(prod.key.id()) + '\n\n'
+        msg += 'Последняя проверка: <i>' + prod.lastcheck + ' UTC</i>'
+    else:
+        msg = 'Ваш список пуст'
+    return msg
+
+def addprod(product, chat_id, message_id):
+    prodid = product['id']
+    url = product['url']
+    price = product['lowprice']
+    name = product['name']
+    currency = product['currency']
+    store = product['store']
+
+    entities = Prod.query(Prod.chatid == chat_id, Prod.prodid == prodid).fetch()
+    if len(entities) > 0:
+        tgMsg(msg=u'️☝️ Ссылка уже есть в вашем списке\n', chat_id=chat_id, reply_to=message_id)
+    else:
+        now = datetime.now().strftime('%d.%m.%Y %H:%M')
+        prod = Prod(prodid=prodid, chatid=chat_id, url=url, price=price, name=name, currency=currency, store=store, lastcheck=now)
+        prod.put()
+        tgMsg(msg=u'✔️ Добавлено к отслеживанию\n', chat_id=chat_id, reply_to=message_id)
+
+def deleteprod(cmd):
+    id = int(cmd.split('_')[1])
+    ndb.Key(Prod, id).delete()
+
+def disableuser(chatid):
+    user = User.get_or_insert(str(chatid))
+    user.enable = False
+    user.put()
+
+def getprice(url):
+    product = parseCRC(url)
+    if product:
+        return product['lowprice']
+    return sys.maxint
 
 
 app = webapp2.WSGIApplication([
-    ('/', tgHandler)
+    ('/', tgHandler),
+    ('/checkprices', checkHandler)
 ])
