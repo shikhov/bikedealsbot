@@ -210,8 +210,10 @@ class checkHandler(webapp2.RequestHandler):
                         msgs[prod.chatid] += '\n\n' + msg
                     else:
                         msgs[prod.chatid] = msg
-                    prod.price = price
+                    if prod.history == '':
+                        prod.history += str(prod.price) + ' (' + datetime.now().strftime('%d.%m.%Y') + ')\n'
                     prod.history += str(price) + ' (' + datetime.now().strftime('%d.%m.%Y') + ')\n'
+                    prod.price = price
 
                 prod.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
                 prod.put()
