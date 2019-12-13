@@ -194,9 +194,8 @@ class checkHandler(webapp2.RequestHandler):
                 if prod.prodid in prices and prices[prod.prodid] < prod.price:
                     changed = True
                 else:
-                    price = getprice(prod.url)
-                    prices[prod.prodid] = price
-                    if price < prod.price:
+                    prices[prod.prodid] = getprice(prod.url)
+                    if prices[prod.prodid] < prod.price:
                         changed = True
 
                 if prices[prod.prodid] == sys.maxint:
@@ -212,8 +211,8 @@ class checkHandler(webapp2.RequestHandler):
                         msgs[prod.chatid] = msg
                     if prod.history == '':
                         prod.history += str(prod.price) + ' (' + datetime.now().strftime('%d.%m.%Y') + ')\n'
-                    prod.history += str(price) + ' (' + datetime.now().strftime('%d.%m.%Y') + ')\n'
-                    prod.price = price
+                    prod.history += str(prices[prod.prodid]) + ' (' + datetime.now().strftime('%d.%m.%Y') + ')\n'
+                    prod.price = prices[prod.prodid]
 
                 prod.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
                 prod.put()
