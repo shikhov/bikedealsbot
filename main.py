@@ -164,7 +164,7 @@ def parseCRC(url):
         matches = re.search(ur'window\.universal_variable\s+=\s+(.+?)</script>', content, re.DOTALL)
         if matches:
             universal = ast.literal_eval(matches.group(1))
-            if 'product' in universal:
+            if 'product' in universal and universal['product']['price']:
                 product = universal['product']
                 product['currency'] = currency
                 product['store'] = 'CRC'
