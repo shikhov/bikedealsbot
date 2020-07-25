@@ -2,3 +2,6 @@ cron:
 - description: "price checking"
   url: /checkprices
   schedule: every 3 hours
+- description: "offers checking"
+  url: /checkoffers
+  schedule: every 3 hours

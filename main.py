@@ -12,7 +12,7 @@ from datetime import datetime
 import webapp2
 from google.appengine.ext import ndb
 
-from config import TOKEN
+from config import TOKEN, ADMINTGID
 
 APIURL = 'https://api.telegram.org/bot'
 
@@ -38,6 +38,11 @@ class User(ndb.Model):
     last_name = ndb.StringProperty()
     enable = ndb.BooleanProperty()
 
+class Offer(ndb.Model):
+    url = ndb.StringProperty()
+    data = ndb.StringProperty()
+    active = ndb.BooleanProperty(default=False)
+
 def tgMsg(msg, chat_id, reply_to=0):
     urllib2.urlopen(APIURL + TOKEN + '/sendMessage', urllib.urlencode({
         'chat_id': chat_id,
@@ -50,7 +55,7 @@ def tgMsg(msg, chat_id, reply_to=0):
 class tgHandler(webapp2.RequestHandler):
     def post(self):
         body = json.loads(self.request.body)
-        logging.info(json.dumps(body, indent=4))
+        logging.info(json.dumps(body, indent=4).decode('unicode-escape'))
 
         if 'message' in body:
             message = body['message']
@@ -85,7 +90,7 @@ class tgHandler(webapp2.RequestHandler):
                         deleteprod(text)
                         tgMsg(msg=u'️Удалено\n', chat_id=chat_id)
 
-                rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+)', text)
+                rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-prod\d+)', text)
                 if rg:
                     product = parseCRC(rg.group(1))
                     if product:
@@ -112,7 +117,8 @@ class tgHandler(webapp2.RequestHandler):
                         itemname = matches.group(1)
 
                 rg = re.search(ur'(https://www\.bike24\.com/\S+)', text)
-                if rg:
+                if False:
+                # if rg:
                     if '?' in rg.group(1):
                         itemurl = rg.group(1) + ';country=23;action=locale_select'
                     else:
@@ -225,6 +231,26 @@ class checkHandler(webapp2.RequestHandler):
                     disableuser(chatid)
 
 
+class checkOffersHandler(webapp2.RequestHandler):
+    def get(self):
+        url = 'https://www.bike-components.de/en/'
+        offer = Offer.get_or_insert(url)
+        opener = urllib2.build_opener()
+        content = opener.open(url).read()
+        matches = re.search(ur'([^>]*free shipping[^<]*)', content, re.IGNORECASE)
+        if matches:
+            data = matches.group(1)
+            if not offer.active:
+                offer.data = data
+                offer.active = True
+                tgMsg(msg=data + '\n' + url, chat_id=ADMINTGID)
+        else:
+            if offer.active:
+                tgMsg(msg='ENDED: ' + offer.data + '\n' + url, chat_id=ADMINTGID)
+            offer.active = False
+
+        offer.put()
+
 def getlist(chatid):
     prods = Prod.query(Prod.chatid == chatid).fetch()
     if len(prods) > 0:
@@ -272,5 +298,6 @@ def getprice(url):
 
 app = webapp2.WSGIApplication([
     ('/', tgHandler),
-    ('/checkprices', checkHandler)
+    ('/checkprices', checkHandler),
+    ('/checkoffers', checkOffersHandler)
 ])
