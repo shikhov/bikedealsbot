@@ -5,3 +5,7 @@ cron:
 - description: "offers checking"
   url: /checkoffers
   schedule: every 3 hours
+- description: "cache cleaning"
+  url: /clearcache
+  schedule: every monday 05:00
+  timezone: Asia/Yekaterinburg
