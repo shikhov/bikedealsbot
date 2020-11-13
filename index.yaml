@@ -3,6 +3,7 @@ indexes:
 - kind: SKUcache
   properties:
     - name: prodid
+    - name: store
     - name: timestamp
 
 - kind: SKU
@@ -10,3 +11,8 @@ indexes:
     - name: chatid
     - name: prodid
     - name: skuid
+
+- kind: SKUcache
+  properties:
+    - name: prodid
+    - name: timestamp
