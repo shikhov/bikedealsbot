@@ -124,6 +124,8 @@ class tgHandler(webapp2.RequestHandler):
                     if text.startswith('/bc'):
                         processCmdBroadcast(cmd=text, chat_id=chat_id)
 
+                    if text == '/stat':
+                        processCmdStat(chat_id=chat_id)
 
                 rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-(prod\d+))', text)
                 if rg:
@@ -585,6 +587,26 @@ def processCmdBroadcast(cmd, chat_id):
                 disableUser(user.chatid)
         sleep(0.1)
     tgMsg(msg="Окончание рассылки", chat_id=chat_id)
+
+
+def processCmdStat(chat_id):
+    if chat_id != ADMINTGID: return
+
+    users = str(len(User.query(User.enable == True).fetch()))
+    userswsku = str(len(ndb.gql('SELECT DISTINCT chatid from SKU').fetch()))
+    sku = str(len(SKU.query().fetch()))
+    crc = str(len(SKU.query(SKU.store == 'CRC').fetch()))
+    bc = str(len(SKU.query(SKU.store == 'BC').fetch()))
+    b24 = str(len(SKU.query(SKU.store == 'B24').fetch()))
+
+    msg = ''
+    msg += '<b>Users:</b> ' + users + '\n'
+    msg += '<b>Users with SKU:</b> ' + userswsku + '\n'
+    msg += '<b>SKU:</b> ' + sku + '\n'
+    msg += '<b>CRC:</b> ' + crc + '\n'
+    msg += '<b>BC:</b> ' + bc + '\n'
+    msg += '<b>B24:</b> ' + b24 + '\n'
+    tgMsg(msg=msg, chat_id=chat_id)
 
 
 class checkSKUHandler(webapp2.RequestHandler):
