@@ -7,6 +7,7 @@ import sys
 import urllib
 import urllib2
 import ast
+import xmltodict
 from time import sleep, time
 from datetime import datetime
 
@@ -150,19 +151,27 @@ class tgHandler(webapp2.RequestHandler):
                             price = matches.group(2) + " - " + matches.group(4)
                         itemname = matches.group(1)
 
-                rg = re.search(ur'(https://www\.bike24\.com/\S+)', text)
-                # if rg:
-                if False:
-                    if '?' in rg.group(1):
-                        itemurl = rg.group(1) + ';country=23;action=locale_select'
+                rg = re.search(ur'(https://www\.bike24\.com/p2(\d+)\.html)', text)
+                if rg:
+                    url = rg.group(1)
+                    prodid = rg.group(2)
+                    if chat_type == 'private':
+                        showVariants(store='B24', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
                     else:
-                        itemurl = rg.group(1) + '?country=23;action=locale_select'
-                        opener = urllib2.build_opener()
-                        content = opener.open(itemurl).read()
-                        matches = re.search(ur'<h1 class="col-md-14 col-lg-14" itemprop="name">(.+?)</h1>.+?<span content="(\d+).+?" itemprop="price" class="text-value js-price-value">', content, re.DOTALL)
-                        if matches:
-                            itemname = matches.group(1)
-                            price = matches.group(2) + ur' €'
+                        if '?' in rg.group(1):
+                            itemurl = rg.group(1) + ';country=23;action=locale_select'
+                        else:
+                            itemurl = rg.group(1) + '?country=23;action=locale_select'
+                        try:
+                            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'}
+                            request = urllib2.Request(url=itemurl, headers=headers)
+                            content = urllib2.urlopen(request).read()
+                            matches = re.search(ur'<h1 class="col-md-14 col-lg-14" itemprop="name">(.+?)</h1>.+?<span content="(\d+).+?" itemprop="price" class="text-value js-price-value">', content, re.DOTALL)
+                            if matches:
+                                itemname = matches.group(1)
+                                price = matches.group(2) + ur' €'
+                        except urllib2.HTTPError:
+                            pass
 
                 rg = re.search(ur'(https://www\.bike-discount\.de/\S+)', text)
                 if rg:
@@ -195,7 +204,7 @@ class tgHandler(webapp2.RequestHandler):
 
 
 def processCmdStart(chat_id, username, first_name, last_name):
-    msg = '️Присылайте мне ссылки на товары из веломагазинов, а я буду отслеживать их цены и наличие 😉 Поддерживаются:\nchainreactioncycles.com\nbike-components.de'
+    msg = '️Присылайте мне ссылки на товары из веломагазинов, а я буду отслеживать их цены и наличие 😉 Поддерживаются:\nchainreactioncycles.com\nbike-components.de\nbike24.com'
     tgMsg(msg=msg, chat_id=chat_id)
     user = User.get_or_insert(str(chat_id))
     user.chatid = chat_id
@@ -263,10 +272,9 @@ def getVariants(store, url, prodid):
             variants[skuid]['url'] = cache.url
             variants[skuid]['name'] = cache.name
             variants[skuid]['instock'] = cache.instock
-
         return variants
 
-    parseFunctions = {'CRC': parseCRC, 'BC': parseBC}
+    parseFunctions = {'CRC': parseCRC, 'BC': parseBC, 'B24': parseB24}
     return parseFunctions[store](url)
 
 
@@ -317,10 +325,7 @@ def parseCRC(url):
                     variants[skuid]['store'] = 'CRC'
                     variants[skuid]['url'] = produrl
                     variants[skuid]['name'] = prodname
-                    if sku['isInStock'] == 'true':
-                        variants[skuid]['instock'] = True
-                    else:
-                        variants[skuid]['instock'] = False
+                    variants[skuid]['instock'] = sku['isInStock'] == 'true'
 
                 cacheVariants(variants)
                 return variants
@@ -360,36 +365,96 @@ def parseBC(url):
     try:
         content = urllib2.urlopen(request).read()
     except Exception:
-        logging.warning('error urlopen ' + url)
         return None
 
     matches = re.search(r'({ \"@context\": \"https:\\/\\/schema\.org\", \"@type\": \"Product\".+?})</script>', content, re.DOTALL)
+    if not matches: return None
+
+    variants = {}
+    json = ast.literal_eval(matches.group(1))
+    skus = json['offers']
+    for sku in skus:
+        skuid = sku['sku'].replace(str(json['sku']), '').replace('-', '')
+        variants[skuid] = {}
+        variants[skuid]['variant'] = sku['name'].replace('\/', '/').decode('unicode-escape')
+        variants[skuid]['prodid'] = str(json['sku'])
+        variants[skuid]['price'] = int(sku['priceSpecification']['price'])
+        if 'True' in sku['priceSpecification']['valueAddedTaxIncluded']:
+            variants[skuid]['price'] = int(sku['priceSpecification']['price']*0.84)
+        variants[skuid]['currency'] = sku['priceSpecification']['priceCurrency']
+        variants[skuid]['store'] = 'BC'
+        variants[skuid]['url'] = url
+        variants[skuid]['name'] = (json['brand']['name'] + ' ' + json['name'].replace('\/', '/')).decode('unicode-escape')
+        variants[skuid]['instock'] = 'InStock' in sku['availability']
+
+    cacheVariants(variants)
+    return variants
+
+
+def parseB24(url):
+    request = urllib2.Request(url, None, {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'})
+    try:
+        content = urllib2.urlopen(request).read()
+    except Exception:
+        return None
+
+    matches = re.search(r'dataLayer =\s+\[(.+?)\];', content, re.DOTALL)
+    if not matches: return None
+
+    jsdata = json.loads(matches.group(1).decode('unicode-escape'))
+    if 'productPrice' not in jsdata: return None
+    price = int(jsdata['productPrice'])
+    prodid = str(jsdata['productId'])
+    name = jsdata['productName'].replace('\/', '/')
+    variant = jsdata['productVariant'].replace('\/', '/')
+    currency = jsdata['currencyCode']
+
+    namesplit = name.split(' - ')
+    if len(namesplit) > 1:
+        name = namesplit[0]
+        variant = ', '.join(namesplit[1:]) + (', ' + variant if variant else '')
+
+    variants = {}
+
+    matches = re.search(r'(<select class="form-control js-product-option-select".+?</select>)', content, re.DOTALL)
     if matches:
-        variants = {}
-        json = ast.literal_eval(matches.group(1))
-        skus = json['offers']
+        xml = matches.group(1).decode('unicode-escape')
+        xml = xml.replace('&euro;', '')
+        try:
+            xmldata = xmltodict.parse(xml)
+        except Exception:
+            return None
+        skus = xmldata['select']['option']
+        if not isinstance(skus, list): skus = [skus]
+
         for sku in skus:
-            skuid = sku['sku'].replace(str(json['sku']), '').replace('-', '')
+            if int(sku['@value']) < 0: continue
+            skuid = sku['@value']
             variants[skuid] = {}
-            variants[skuid]['variant'] = sku['name'].replace('\/', '/').decode('unicode-escape')
-            variants[skuid]['prodid'] = str(json['sku'])
-            variants[skuid]['price'] = int(sku['priceSpecification']['price'])
-            if 'True' in sku['priceSpecification']['valueAddedTaxIncluded']:
-                variants[skuid]['price'] = int(sku['priceSpecification']['price']*0.84)
-            variants[skuid]['currency'] = sku['priceSpecification']['priceCurrency']
-            variants[skuid]['store'] = 'BC'
+            vartext = re.sub(r' - add.+', '', sku['#text'])
+            vartext = vartext.replace('not deliverable: ', '')
+            variants[skuid]['variant'] = ((variant + ', ' if variant else '') + vartext).replace('\/', '/').strip()
+            variants[skuid]['prodid'] = prodid
+            if '@data-surcharge' in sku: price = int(price + float(sku['@data-surcharge']))
+            variants[skuid]['price'] = price
+            variants[skuid]['currency'] = currency
+            variants[skuid]['store'] = 'B24'
             variants[skuid]['url'] = url
-            variants[skuid]['name'] = (json['brand']['name'] + ' ' + json['name'].replace('\/', '/')).decode('unicode-escape')
-            if 'InStock' in sku['availability']:
-                variants[skuid]['instock'] = True
-            else:
-                variants[skuid]['instock'] = False
+            variants[skuid]['name'] = name
+            variants[skuid]['instock'] = sku['@data-stock-current'] != '0'
+    else:
+        variants['0'] = {}
+        variants['0']['variant'] = variant
+        variants['0']['prodid'] = prodid
+        variants['0']['price'] = price
+        variants['0']['currency'] = currency
+        variants['0']['store'] = 'B24'
+        variants['0']['url'] = url
+        variants['0']['name'] = name
+        variants['0']['instock'] = jsdata['isAvailable']
 
-        cacheVariants(variants)
-        return variants
-
-    logging.warning('no regexp matches ' + url)
-    return None
+    cacheVariants(variants)
+    return variants
 
 
 def showVariants(store, url, prodid, chat_id, message_id):
@@ -502,6 +567,7 @@ def checkSKU():
         except urllib2.HTTPError as e:
             if e.reason == 'Forbidden':
                 disableUser(chatid)
+        sleep(0.1)
 
 
 def processCmdBroadcast(cmd, chat_id):
