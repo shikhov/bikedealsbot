@@ -129,7 +129,7 @@ class tgHandler(webapp2.RequestHandler):
 
                 rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-(prod\d+))', text)
                 if rg:
-                    url = rg.group(1)
+                    url = 'https://www.chainreactioncycles.com/en/rp-' + rg.group(2)
                     prodid = rg.group(2)
                     if chat_type == 'private':
                         showVariants(store='CRC', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
