@@ -93,116 +93,117 @@ class tgHandler(webapp2.RequestHandler):
         body = json.loads(self.request.body)
         logging.info(json.dumps(body, indent=4).decode('unicode-escape'))
 
-        if 'message' in body:
-            message = body['message']
-            fr = message.get('from')
-            message_id = message['message_id']
-            chat_id = message['chat']['id']
-            chat_type = message['chat']['type']
-            username = fr.get('username')
-            first_name = fr.get('first_name')
-            last_name = fr.get('last_name')
-            text = message.get('text')
+        if 'message' not in body: return
+        message = body['message']
+        text = message.get('text')
+        if not text: return
 
-            price = None
-            itemname = None
+        fr = message.get('from')
+        message_id = message['message_id']
+        chat_id = message['chat']['id']
+        chat_type = message['chat']['type']
+        username = fr.get('username')
+        first_name = fr.get('first_name')
+        last_name = fr.get('last_name')
 
-            if text:
-                if chat_type == 'private':
-                    if text == '/start':
-                        processCmdStart(chat_id=chat_id, username=username, first_name=first_name, last_name=last_name)
+        price = None
+        itemname = None
 
-                    if text == '/list':
-                        processCmdList(chat_id=chat_id)
+        if chat_type == 'private':
+            if text == '/start':
+                processCmdStart(chat_id=chat_id, username=username, first_name=first_name, last_name=last_name)
 
-                    if text.startswith('/add_'):
-                        processCmdAdd(cmd=text, chat_id=chat_id, message_id=message_id)
+            if text == '/list':
+                processCmdList(chat_id=chat_id)
 
-                    if text.startswith('/del_'):
-                        processCmdDel(cmd=text, chat_id=chat_id, message_id=message_id)
+            if text.startswith('/add_'):
+                processCmdAdd(cmd=text, chat_id=chat_id, message_id=message_id)
 
-                    if text.startswith('/bc'):
-                        processCmdBroadcast(cmd=text, chat_id=chat_id)
+            if text.startswith('/del_'):
+                processCmdDel(cmd=text, chat_id=chat_id, message_id=message_id)
 
-                    if text == '/stat':
-                        processCmdStat(chat_id=chat_id)
+            if text.startswith('/bc'):
+                processCmdBroadcast(cmd=text, chat_id=chat_id)
 
-                rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-(prod\d+))', text)
-                if rg:
-                    url = 'https://www.chainreactioncycles.com/en/rp-' + rg.group(2)
-                    prodid = rg.group(2)
-                    if chat_type == 'private':
-                        showVariants(store='CRC', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
-                    else:
-                        product = parseCRC2(url)
-                        if product:
-                            itemname = product['name']
-                            price = product['textprice']
+            if text == '/stat':
+                processCmdStat(chat_id=chat_id)
 
-                rg = re.search(ur'(https?://www\.wiggle\.(co\.uk|com|ru)/)(\S+)', text)
-                if rg:
-                    urltmp = rg.group(1) + rg.group(3)
-                    itemurl = urllib.quote(urltmp.encode('utf-8'), ':/%') + '?curr=USD&dest=24'
-                    opener = urllib2.build_opener()
-                    content = opener.open(itemurl).read()
-                    matches = re.search(ur'<h1 id="productTitle" class="bem-heading--1" itemprop="name">(.+?)</h1>.+?<span class="js-unit-price" data-default-value="(\$[\d,]+)(.+?(\$[\d,]+))?', content, re.DOTALL)
-                    if matches:
-                        if matches.group(2) == matches.group(4):
-                            price = matches.group(2)
-                        else:
-                            price = matches.group(2) + " - " + matches.group(4)
-                        itemname = matches.group(1)
+        rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-(prod\d+))', text)
+        if rg:
+            url = 'https://www.chainreactioncycles.com/en/rp-' + rg.group(2)
+            prodid = rg.group(2)
+            if chat_type == 'private':
+                showVariants(store='CRC', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
+            else:
+                product = parseCRC2(url)
+                if product:
+                    itemname = product['name']
+                    price = product['textprice']
 
-                rg = re.search(ur'(https://www\.bike24\.com/p2(\d+)\.html)', text)
-                if rg:
-                    url = rg.group(1)
-                    prodid = rg.group(2)
-                    if chat_type == 'private':
-                        showVariants(store='B24', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
-                    else:
-                        if '?' in rg.group(1):
-                            itemurl = rg.group(1) + ';country=23;action=locale_select'
-                        else:
-                            itemurl = rg.group(1) + '?country=23;action=locale_select'
-                        try:
-                            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'}
-                            request = urllib2.Request(url=itemurl, headers=headers)
-                            content = urllib2.urlopen(request).read()
-                            matches = re.search(ur'<h1 class="col-md-14 col-lg-14" itemprop="name">(.+?)</h1>.+?<span content="(\d+).+?" itemprop="price" class="text-value js-price-value">', content, re.DOTALL)
-                            if matches:
-                                itemname = matches.group(1)
-                                price = matches.group(2) + ur' €'
-                        except urllib2.HTTPError:
-                            pass
+        rg = re.search(ur'(https?://www\.wiggle\.(co\.uk|com|ru)/)(\S+)', text)
+        if rg:
+            urltmp = rg.group(1) + rg.group(3)
+            itemurl = urllib.quote(urltmp.encode('utf-8'), ':/%') + '?curr=USD&dest=24'
+            opener = urllib2.build_opener()
+            content = opener.open(itemurl).read()
+            matches = re.search(ur'<h1 id="productTitle" class="bem-heading--1" itemprop="name">(.+?)</h1>.+?<span class="js-unit-price" data-default-value="(\$[\d,]+)(.+?(\$[\d,]+))?', content, re.DOTALL)
+            if matches:
+                if matches.group(2) == matches.group(4):
+                    price = matches.group(2)
+                else:
+                    price = matches.group(2) + " - " + matches.group(4)
+                itemname = matches.group(1)
 
-                rg = re.search(ur'(https://www\.bike-discount\.de/\S+)', text)
-                if rg:
-                    itemurl = rg.group(1) + '?currency=1&delivery_country=144'
-                    opener = urllib2.build_opener()
-                    content = opener.open(itemurl).read()
-                    matches = re.search(ur'<meta itemprop="name" content="(.+?)"><meta itemprop="price" content="(\d+)', content)
+        rg = re.search(ur'(https://www\.bike24\.com/p2(\d+)\.html)', text)
+        if rg:
+            url = rg.group(1)
+            prodid = rg.group(2)
+            if chat_type == 'private':
+                showVariants(store='B24', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
+            else:
+                if '?' in rg.group(1):
+                    itemurl = rg.group(1) + ';country=23;action=locale_select'
+                else:
+                    itemurl = rg.group(1) + '?country=23;action=locale_select'
+                try:
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'}
+                    request = urllib2.Request(url=itemurl, headers=headers)
+                    content = urllib2.urlopen(request).read()
+                    matches = re.search(ur'<h1 class="col-md-14 col-lg-14" itemprop="name">(.+?)</h1>.+?<span content="(\d+).+?" itemprop="price" class="text-value js-price-value">', content, re.DOTALL)
                     if matches:
                         itemname = matches.group(1)
                         price = matches.group(2) + ur' €'
+                except urllib2.HTTPError:
+                    pass
 
-                rg = re.search(ur'(https://www\.bike-components\.de/\S+p(\d+)\/)', text)
-                if rg:
-                    url = rg.group(1)
-                    prodid = rg.group(2)
-                    if chat_type == 'private':
-                        showVariants(store='BC', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
-                    else:
-                        opener = urllib2.build_opener()
-                        content = opener.open(url).read()
-                        matches = re.search(ur'data-product-name="(.+?)".+data-price="(.+?)"', content)
-                        if matches:
-                            itemname = matches.group(1)
-                            price = matches.group(2)
+        rg = re.search(ur'(https://www\.bike-discount\.de/\S+)', text)
+        if rg:
+            itemurl = rg.group(1) + '?currency=1&delivery_country=144'
+            opener = urllib2.build_opener()
+            content = opener.open(itemurl).read()
+            matches = re.search(ur'<meta itemprop="name" content="(.+?)"><meta itemprop="price" content="(\d+)', content)
+            if matches:
+                itemname = matches.group(1)
+                price = matches.group(2) + ur' €'
 
-                if price and itemname and chat_type != 'private':
-                    logging.info('name: ' + itemname)
-                    logging.info('price: ' + price)
-                    tgMsg(msg=itemname + '\n' + price, chat_id=chat_id, reply_to=message_id)
+        rg = re.search(ur'(https://www\.bike-components\.de/\S+p(\d+)\/)', text)
+        if rg:
+            url = rg.group(1)
+            prodid = rg.group(2)
+            if chat_type == 'private':
+                showVariants(store='BC', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
+            else:
+                opener = urllib2.build_opener()
+                content = opener.open(url).read()
+                matches = re.search(ur'data-product-name="(.+?)".+data-price="(.+?)"', content)
+                if matches:
+                    itemname = matches.group(1)
+                    price = matches.group(2)
+
+        if price and itemname and chat_type != 'private':
+            logging.info('name: ' + itemname)
+            logging.info('price: ' + price)
+            tgMsg(msg=itemname + '\n' + price, chat_id=chat_id, reply_to=message_id)
 
 
 def processCmdStart(chat_id, username, first_name, last_name):
