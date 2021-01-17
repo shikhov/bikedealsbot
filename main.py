@@ -36,6 +36,7 @@ class SKU(ndb.Model):
     price = ndb.IntegerProperty()
     currency = ndb.StringProperty()
     lastcheck = ndb.StringProperty()
+    lastgoodts = ndb.IntegerProperty()
     store = ndb.StringProperty()
     errors = ndb.IntegerProperty(default=0)
     history = ndb.StringProperty(default='')
@@ -536,6 +537,7 @@ def checkSKU():
 
     msgs = {}
     enabled_users = {}
+    now = int(time())
 
     for user in User.query(User.enable == True).fetch():
         enabled_users[user.chatid] = 'foo'
@@ -558,8 +560,10 @@ def checkSKU():
                 dbsku.instock = sku['instock']
                 dbsku.price = sku['price']
                 dbsku.errors = 0
+                dbsku.lastgoodts = now
             else:
                 dbsku.errors += 1
+                if not dbsku.lastgoodts: dbsku.lastgoodts = 0
 
             dbsku.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
             dbsku.put()
@@ -687,6 +691,7 @@ def addVariant(store, prodid, skuid, chat_id, message_id, msgtype):
     dbsku.store = sku['store']
     dbsku.instock = sku['instock']
     dbsku.lastcheck = now
+    dbsku.lastgoodts = int(time())
     dbsku.put()
 
     if msgtype == 'reply':
