@@ -129,9 +129,9 @@ class tgHandler(webapp2.RequestHandler):
             if text == '/stat':
                 processCmdStat(chat_id=chat_id)
 
-        rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-(prod\d+))', text)
+        rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-prod(\d+))', text)
         if rg:
-            url = 'https://www.chainreactioncycles.com/en/rp-' + rg.group(2)
+            url = 'https://www.chainreactioncycles.com/en/rp-prod' + rg.group(2)
             prodid = rg.group(2)
             if chat_type == 'private':
                 showVariants(store='CRC', url=url, prodid=prodid, chat_id=chat_id, message_id=message_id)
@@ -266,16 +266,15 @@ def getVariants(store, url, prodid):
     entities = SKUcache.query(SKUcache.store == store, SKUcache.prodid == prodid, SKUcache.timestamp >= tsnow).fetch()
     if entities:
         for cache in entities:
-            skuid = cache.skuid
-            variants[skuid] = {}
-            variants[skuid]['variant'] = cache.variant
-            variants[skuid]['prodid'] = cache.prodid
-            variants[skuid]['price'] = cache.price
-            variants[skuid]['currency'] = cache.currency
-            variants[skuid]['store'] = cache.store
-            variants[skuid]['url'] = cache.url
-            variants[skuid]['name'] = cache.name
-            variants[skuid]['instock'] = cache.instock
+            variants[cache.skuid] = {}
+            variants[cache.skuid]['variant'] = cache.variant
+            variants[cache.skuid]['prodid'] = cache.prodid
+            variants[cache.skuid]['price'] = cache.price
+            variants[cache.skuid]['currency'] = cache.currency
+            variants[cache.skuid]['store'] = cache.store
+            variants[cache.skuid]['url'] = cache.url
+            variants[cache.skuid]['name'] = cache.name
+            variants[cache.skuid]['instock'] = cache.instock
         return variants
 
     parseFunctions = {'CRC': parseCRC, 'BC': parseBC, 'B24': parseB24}
@@ -299,7 +298,7 @@ def parseCRC(url):
             universal = ast.literal_eval(matches.group(1))
             if 'product' in universal and universal['product']['price']:
                 product = universal['product']
-                prodid = product['id']
+                prodid = product['id'].replace('prod', '')
                 produrl = 'https://www.chainreactioncycles.com' + product['url']
                 prodname = product['manufacturer'] + ' ' + product['name']
             else:
@@ -316,7 +315,7 @@ def parseCRC(url):
                 variants = {}
                 skus = ast.literal_eval(matches.group(1))['variants']
                 for sku in skus:
-                    skuid = sku['skuId']
+                    skuid = sku['skuId'].replace('sku', '')
                     variants[skuid] = {}
 
                     varNameArray = []
