@@ -225,18 +225,14 @@ def processCmdList(chat_id):
         tgMsg(msg='Ваш список пуст', chat_id=chat_id)
         return
 
-    msg = 'Отслеживаемые товары:\n\n'
+    text_array = ['Отслеживаемые товары:']
 
     for sku in skus:
         warn = '' if sku.errors <= ERRORMINTHRESHOLD else '⚠️ Ошибка (возможно, ссылка неактуальна)\n'
-        line = getSkuString(sku, ['store', 'url','icon']) + '\n' + warn + '<i>Удалить: /del_' + str(sku.key.id()) + '</i>\n\n'
-        if len(msg + line) > 4096:
-            tgMsg(msg=msg, chat_id=chat_id)
-            msg = ''
-        msg += line
+        line = getSkuString(sku, ['store', 'url','icon']) + '\n' + warn + '<i>Удалить: /del_' + str(sku.key.id()) + '</i>'
+        text_array.append(line)
 
-    if msg:
-        tgMsg(msg=msg, chat_id=chat_id)
+    paginatedTgMsg(text_array, chat_id)
 
 
 def processCmdAdd(cmd, chat_id, message_id):
@@ -463,36 +459,25 @@ def parseB24(url):
 def showVariants(store, url, prodid, chat_id, message_id):
     tgresult = tgMsg(msg='🔎 Ищу информацию о товаре...', chat_id=chat_id, reply_to=message_id)
     tgmsgid = tgresult['result']['message_id']
-    firstPage = True
-    msg = ''
-    msghdr = ''
+    text_array = []
 
     variants = getVariants(store, url, prodid)
     if variants:
+        first_skuid = list(variants)[0]
         if len(variants) == 1:
-            skuid = list(variants)[0]
-            addVariant(store, prodid, skuid, chat_id, tgmsgid, 'edit')
+            addVariant(store, prodid, first_skuid, chat_id, tgmsgid, 'edit')
             return
+
+        text_array.append(variants[first_skuid]['name'])
         for skuid in sorted(variants):
             sku = variants[skuid]
-            msghdr = sku['name'] + '\n\n'
-            line = getSkuString(sku, ['icon']) + '\n<i>Добавить: /add_' + store.lower() + '_' +  sku['prodid'] + '_' + skuid + '</i>\n\n'
-            if len(msghdr + msg + line) > 4096:
-                if firstPage:
-                    tgEditMsg(text=msghdr + msg, chat_id=chat_id, msg_id=tgmsgid)
-                else:
-                    tgMsg(msg=msg, chat_id=chat_id)
-                msg = ''
-                firstPage = False
-            msg += line
+            line = getSkuString(sku, ['icon']) + '\n<i>Добавить: /add_' + store.lower() + '_' +  sku['prodid'] + '_' + skuid + '</i>'
+            text_array.append(line)
     else:
-        msg = 'Не смог найти цену 😧'
+        text_array.append('Не смог найти цену 😧')
 
-    if msg:
-        if firstPage:
-            tgEditMsg(text=msghdr + msg, chat_id=chat_id, msg_id=tgmsgid)
-        else:
-            tgMsg(msg=msg, chat_id=chat_id)
+    paginatedTgMsg(text_array, chat_id, tgmsgid)
+
 
 
 def getSkuString(sku, options):
@@ -530,9 +515,9 @@ def getSkuString(sku, options):
 def checkSKU():
     def addMsg(msg):
         if dbsku.chatid in msgs:
-            msgs[dbsku.chatid] += '\n\n' + msg
+            msgs[dbsku.chatid].append(msg)
         else:
-            msgs[dbsku.chatid] = msg
+            msgs[dbsku.chatid] = [msg]
 
     msgs = {}
     enabled_users = {}
@@ -569,7 +554,7 @@ def checkSKU():
 
     for chatid in msgs:
         try:
-            tgMsg(msgs[chatid], chatid)
+            paginatedTgMsg(msgs[chatid], chatid)
         except urllib2.HTTPError as e:
             if e.reason == 'Forbidden':
                 disableUser(chatid)
@@ -732,6 +717,26 @@ def disableUser(chatid):
     user = User.get_or_insert(str(chatid))
     user.enable = False
     user.put()
+
+
+def paginatedTgMsg(text_array, chat_id, message_id=0, delimiter='\n\n'):
+    def sendOrEditMsg():
+        if message_id != 0 and first_page:
+            tgEditMsg(text=msg, chat_id=chat_id, msg_id=message_id)
+        else:
+            tgMsg(msg=msg, chat_id=chat_id)
+
+    first_page = True
+    msg = ''
+
+    for paragraph in text_array:
+        if len(msg + paragraph) > 4090:
+            sendOrEditMsg()
+            msg = ''
+            first_page = False
+        msg += paragraph + delimiter
+
+    if msg: sendOrEditMsg()
 
 
 app = webapp2.WSGIApplication([
