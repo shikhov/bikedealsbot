@@ -99,35 +99,16 @@ class tgHandler(webapp2.RequestHandler):
         text = message.get('text')
         if not text: return
 
-        fr = message.get('from')
         message_id = message['message_id']
         chat_id = message['chat']['id']
         chat_type = message['chat']['type']
-        username = fr.get('username')
-        first_name = fr.get('first_name')
-        last_name = fr.get('last_name')
+
+        if chat_type == 'private' and text.startswith('/'):
+            processCmd(message)
+            return
 
         price = None
         itemname = None
-
-        if chat_type == 'private':
-            if text == '/start':
-                processCmdStart(chat_id=chat_id, username=username, first_name=first_name, last_name=last_name)
-
-            if text == '/list':
-                processCmdList(chat_id=chat_id)
-
-            if text.startswith('/add_'):
-                processCmdAdd(cmd=text, chat_id=chat_id, message_id=message_id)
-
-            if text.startswith('/del_'):
-                processCmdDel(cmd=text, chat_id=chat_id, message_id=message_id)
-
-            if text.startswith('/bc'):
-                processCmdBroadcast(cmd=text, chat_id=chat_id)
-
-            if text == '/stat':
-                processCmdStat(chat_id=chat_id)
 
         rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-prod(\d+))', text)
         if rg:
@@ -290,44 +271,44 @@ def parseCRC(url):
             return None
 
         matches = re.search(ur'window\.universal_variable\s+=\s+(.+?)</script>', content, re.DOTALL)
-        if matches:
-            universal = ast.literal_eval(matches.group(1))
-            if 'product' in universal and universal['product']['price']:
-                product = universal['product']
-                prodid = product['id'].replace('prod', '')
-                produrl = 'https://www.chainreactioncycles.com' + product['url']
-                prodname = product['manufacturer'] + ' ' + product['name']
-            else:
-                continue
+        if not matches: continue
 
-            matches = re.search(ur'var\s+variantsAray\s+=\s+(\[.+?);', content, re.DOTALL)
-            if matches:
-                options = ast.literal_eval(matches.group(1))
-            else:
-                continue
+        universal = ast.literal_eval(matches.group(1))
+        if not ('product' in universal and universal['product']['price']): continue
 
-            matches = re.search(ur'var\s+allVariants\s+=\s+({.+?);', content, re.DOTALL)
-            if matches:
-                variants = {}
-                skus = ast.literal_eval(matches.group(1))['variants']
-                for sku in skus:
-                    skuid = sku['skuId'].replace('sku', '')
-                    variants[skuid] = {}
+        product = universal['product']
+        prodid = product['id'].replace('prod', '')
+        produrl = 'https://www.chainreactioncycles.com' + product['url']
+        prodname = product['manufacturer'] + ' ' + product['name']
 
-                    varNameArray = []
-                    for option in options:
-                        if sku[option]: varNameArray.append(sku[option])
-                    variants[skuid]['variant'] = ', '.join(varNameArray)
-                    variants[skuid]['prodid'] = prodid
-                    variants[skuid]['price'] = int(re.sub(r'^\D*(\d+).*', r'\1', sku['RP']))
-                    variants[skuid]['currency'] = currency
-                    variants[skuid]['store'] = 'CRC'
-                    variants[skuid]['url'] = produrl
-                    variants[skuid]['name'] = prodname
-                    variants[skuid]['instock'] = sku['isInStock'] == 'true'
+        matches = re.search(ur'var\s+variantsAray\s+=\s+(\[.+?);', content, re.DOTALL)
+        if not matches: continue
 
-                cacheVariants(variants)
-                return variants
+        options = ast.literal_eval(matches.group(1))
+
+        matches = re.search(ur'var\s+allVariants\s+=\s+({.+?);', content, re.DOTALL)
+        if not matches: continue
+
+        variants = {}
+        skus = ast.literal_eval(matches.group(1))['variants']
+        for sku in skus:
+            skuid = sku['skuId'].replace('sku', '')
+            variants[skuid] = {}
+
+            varNameArray = []
+            for option in options:
+                if sku[option]: varNameArray.append(sku[option])
+            variants[skuid]['variant'] = ', '.join(varNameArray)
+            variants[skuid]['prodid'] = prodid
+            variants[skuid]['price'] = int(re.sub(r'^\D*(\d+).*', r'\1', sku['RP']))
+            variants[skuid]['currency'] = currency
+            variants[skuid]['store'] = 'CRC'
+            variants[skuid]['url'] = produrl
+            variants[skuid]['name'] = prodname
+            variants[skuid]['instock'] = sku['isInStock'] == 'true'
+
+        cacheVariants(variants)
+        return variants
     return None
 
 
@@ -342,20 +323,21 @@ def parseCRC2(url):
         request = urllib2.Request(url, None, headerslist[currency])
         content = urllib2.urlopen(request).read()
         matches = re.search(ur'window\.universal_variable\s+=\s+(.+?)</script>', content, re.DOTALL)
-        if matches:
-            universal = ast.literal_eval(matches.group(1))
-            if 'product' in universal and universal['product']['price']:
-                product = universal['product']
-                product['currency'] = currency
-                product['store'] = 'CRC'
-                product['url'] = 'https://www.chainreactioncycles.com' + product['url']
-                product['name'] = product['manufacturer'] + ' ' + product['name']
-                textprice = str(product['price'])
-                product['lowprice'] = int(re.sub(r'^(\d+).*', r'\1', textprice))
-                textprice = re.sub(r'\.\d+', '', textprice)
-                textprice = re.sub('-', ' - ', textprice)
-                product['textprice'] = textprice + ' ' + product['currency']
-                return product
+        if not matches: continue
+
+        universal = ast.literal_eval(matches.group(1))
+        if 'product' in universal and universal['product']['price']:
+            product = universal['product']
+            product['currency'] = currency
+            product['store'] = 'CRC'
+            product['url'] = 'https://www.chainreactioncycles.com' + product['url']
+            product['name'] = product['manufacturer'] + ' ' + product['name']
+            textprice = str(product['price'])
+            product['lowprice'] = int(re.sub(r'^(\d+).*', r'\1', textprice))
+            textprice = re.sub(r'\.\d+', '', textprice)
+            textprice = re.sub('-', ' - ', textprice)
+            product['textprice'] = textprice + ' ' + product['currency']
+            return product
     return None
 
 
@@ -547,7 +529,6 @@ def checkSKU():
                 dbsku.lastgoodts = now
             else:
                 dbsku.errors += 1
-                if not dbsku.lastgoodts: dbsku.lastgoodts = 0
 
             dbsku.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
             dbsku.put()
@@ -559,6 +540,34 @@ def checkSKU():
             if e.reason == 'Forbidden':
                 disableUser(chatid)
         sleep(0.1)
+
+
+def processCmd(message):
+    text = message.get('text')
+    message_id = message['message_id']
+    chat_id = message['chat']['id']
+    message_from = message.get('from')
+    username = message_from.get('username')
+    first_name = message_from.get('first_name')
+    last_name = message_from.get('last_name')
+
+    if text == '/start':
+        processCmdStart(chat_id=chat_id, username=username, first_name=first_name, last_name=last_name)
+
+    if text == '/list':
+        processCmdList(chat_id=chat_id)
+
+    if text.startswith('/add_'):
+        processCmdAdd(cmd=text, chat_id=chat_id, message_id=message_id)
+
+    if text.startswith('/del_'):
+        processCmdDel(cmd=text, chat_id=chat_id, message_id=message_id)
+
+    if text.startswith('/bc'):
+        processCmdBroadcast(cmd=text, chat_id=chat_id)
+
+    if text == '/stat':
+        processCmdStat(chat_id=chat_id)
 
 
 def processCmdBroadcast(cmd, chat_id):
