@@ -6,6 +6,12 @@ indexes:
     - name: store
     - name: timestamp
 
+- kind: SKUcache
+  properties:
+    - name: url
+    - name: store
+    - name: timestamp
+
 - kind: SKU
   properties:
     - name: chatid
