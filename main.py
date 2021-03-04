@@ -13,6 +13,7 @@ from datetime import datetime
 
 import webapp2
 from google.appengine.ext import ndb
+from google.appengine.api import urlfetch
 
 from config import TOKEN, ADMINTGID
 
@@ -23,6 +24,7 @@ ERRORMAXTHRESHOLD = 300
 
 reload(sys)
 sys.setdefaultencoding('utf8')
+urlfetch.set_default_fetch_deadline(60)
 
 
 class SKU(ndb.Model):
@@ -92,7 +94,6 @@ def tgEditMsg(chat_id, msg_id, text):
 class tgHandler(webapp2.RequestHandler):
     def post(self):
         body = json.loads(self.request.body)
-        logging.info(json.dumps(body, indent=4).decode('unicode-escape'))
 
         if 'message' not in body: return
         message = body['message']
@@ -102,6 +103,11 @@ class tgHandler(webapp2.RequestHandler):
         message_id = message['message_id']
         chat_id = message['chat']['id']
         chat_type = message['chat']['type']
+
+        if chat_type == 'private':
+            logging.debug(json.dumps(body, indent=4).decode('unicode-escape'))
+        else:
+            logging.info(json.dumps(body, indent=4).decode('unicode-escape'))
 
         if chat_type == 'private' and text.startswith('/'):
             processCmd(message)
@@ -156,10 +162,10 @@ class tgHandler(webapp2.RequestHandler):
                 except urllib2.HTTPError:
                     pass
 
-        rg = re.search(r'(https://www\.bike-discount\.de)/.+?/(.+)', text)
+        rg = re.search(r'(https://www\.bike-discount\.de)/.+?/([^?&]+)', text)
         if rg:
             url = rg.group(1) + '/en/' + rg.group(2)
-            if chat_type == 'private' and chat_id == ADMINTGID:
+            if chat_type == 'private':
                 showVariants(store='BD', url=url, chat_id=chat_id, message_id=message_id)
 
             # itemurl = rg.group(1) + '?currency=1&delivery_country=144'
@@ -441,7 +447,7 @@ def parseB24(url):
 def parseBD(url):
     request = urllib2.Request(url)
     try:
-        content = urllib2.urlopen(request).read()#.decode('latin-1')
+        content = urllib2.urlopen(request).read()
     except Exception:
         return None
 
@@ -474,8 +480,11 @@ def parseBD(url):
         try:
             xmldata = xmltodict.parse(xml)
         except Exception:
+            logging.warning('xmltodict.parse error: ' + url)
             return None
+
         skus = xmldata['div']['div']
+        if not isinstance(skus, list): skus = [skus]
         for x in skus:
             sku = x['input']
             skuid = sku['@value']
@@ -619,21 +628,30 @@ def processCmd(message):
 
     if text == '/start':
         processCmdStart(chat_id=chat_id, username=username, first_name=first_name, last_name=last_name)
+        return
 
     if text == '/list':
         processCmdList(chat_id=chat_id)
+        return
 
     if text.startswith('/add_'):
         processCmdAdd(cmd=text, chat_id=chat_id, message_id=message_id)
+        return
 
     if text.startswith('/del_'):
         processCmdDel(cmd=text, chat_id=chat_id, message_id=message_id)
+        return
 
     if text.startswith('/bc'):
         processCmdBroadcast(cmd=text, chat_id=chat_id)
+        return
 
     if text == '/stat':
         processCmdStat(chat_id=chat_id)
+        return
+
+    tgMsg(msg='Непонятная команда 😧', chat_id=chat_id, reply_to=message_id)
+
 
 
 def processCmdBroadcast(cmd, chat_id):
@@ -649,7 +667,7 @@ def processCmdBroadcast(cmd, chat_id):
         except urllib2.HTTPError as e:
             if e.reason == 'Forbidden':
                 disableUser(user.chatid)
-        sleep(0.1)
+        sleep(0.5)
     tgMsg(msg="Окончание рассылки", chat_id=chat_id)
 
 
