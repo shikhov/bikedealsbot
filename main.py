@@ -578,6 +578,7 @@ def checkSKU():
 
     msgs = {}
     enabled_users = {}
+    stores = {}
     now = int(time())
 
     for user in User.query(User.enable == True).fetch():
@@ -602,8 +603,10 @@ def checkSKU():
                 dbsku.price = sku['price']
                 dbsku.errors = 0
                 dbsku.lastgoodts = now
+                stores[dbsku.store] = True
             else:
                 dbsku.errors += 1
+                if dbsku.store not in stores: stores[dbsku.store] = False
 
             dbsku.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
             dbsku.put()
@@ -615,6 +618,9 @@ def checkSKU():
             if e.reason == 'Forbidden':
                 disableUser(chatid)
         sleep(0.1)
+
+    for store in stores:
+        if not stores[store]: tgMsg('Problem with ' + store + '!', chat_id=ADMINTGID)
 
 
 def processCmd(message):
