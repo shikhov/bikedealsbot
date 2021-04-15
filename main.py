@@ -8,6 +8,7 @@ import urllib
 import urllib2
 import ast
 import xmltodict
+from bs4 import BeautifulSoup
 from time import sleep, time
 from datetime import datetime
 
@@ -162,19 +163,11 @@ class tgHandler(webapp2.RequestHandler):
                 except urllib2.HTTPError:
                     pass
 
-        rg = re.search(r'(https://www\.bike-discount\.de)/.+?/([^?&]+)', text)
+        rg = re.search(r'(https://www\.bike-discount\.de)/.+?/.+?/([^?&]+)', text)
         if rg:
-            url = rg.group(1) + '/en/' + rg.group(2)
+            url = rg.group(1) + '/en/buy/' + rg.group(2)
             if chat_type == 'private':
                 showVariants(store='BD', url=url, chat_id=chat_id, message_id=message_id)
-
-            # itemurl = rg.group(1) + '?currency=1&delivery_country=144'
-            # opener = urllib2.build_opener()
-            # content = opener.open(itemurl).read()
-            # matches = re.search(ur'<meta itemprop="name" content="(.+?)"><meta itemprop="price" content="(\d+)', content)
-            # if matches:
-            #     itemname = matches.group(1)
-            #     price = matches.group(2) + ur' €'
 
         rg = re.search(ur'(https://www\.bike-components\.de/\S+p(\d+)\/)', text)
         if rg:
@@ -445,68 +438,80 @@ def parseB24(url):
 
 
 def parseBD(url):
-    request = urllib2.Request(url)
+    matches = re.search(r'(\d+)$', url)
+    if not matches: return None
+    prodid = matches.group(1)
+
+    request = urllib2.Request(url + '?currency=1&delivery_country=144')
     try:
         content = urllib2.urlopen(request).read()
     except Exception:
         return None
 
-    matches = re.search(r'({"ecommerce":.+)', content)
-    if not matches: return None
-    jsdata = ast.literal_eval(matches.group(1))
-    product = jsdata['ecommerce']['detail']['products'][0]
-    name = product['brand'].strip() + ' ' + product['name'].strip()
-    name = name.replace('\/', '/')
-    name = name.replace('\\u00ae', '') # Unicode Character 'REGISTERED SIGN'
-    name = name.decode('unicode-escape')
-    price = int(product['price']*0.84)
-    currency = jsdata['ecommerce']['currencyCode']
-    store = 'BD'
+    def findName(tag):
+        return tag.name == 'meta' and tag.get('itemprop') == 'name' and tag.parent.get('itemtype') == 'http://schema.org/Product'
 
-    matches = re.search(r'<meta itemprop="productID" content="(.+?)"/>', content, re.DOTALL)
-    if not matches: return None
-    prodid = matches.group(1)
+    def findVariants(tag):
+        return tag.name == 'div' and tag.has_attr('class') and 'variantselector' in tag['class']
 
-    matches = re.search(r'<link itemprop="availability" href="http://schema\.org/(.+?)"/>', content, re.DOTALL)
-    if not matches: return None
-    instock = matches.group(1) == 'InStock'
+    def findOffers(tag):
+        return tag.name == 'div' and tag.get('itemtype') == 'http://schema.org/Offer'
+
+    soup = BeautifulSoup(content, 'lxml')
+    res = soup.find_all(findName)
+    if not res: return None
+    if not res[0].get('content'): return None
+    name = res[0]['content']
+
+    res = soup.find_all(findVariants)
+    if not res: return None
+    varnames = {}
+
+    if res[0].div:
+        div_w_variants = res[0].div
+        if res[0].div.div:
+            div_w_variants = res[0].div.div
+        for y in div_w_variants:
+            if y.has_attr('data-id') and y.has_attr('data-vartext'):
+                varid = y['data-id']
+                vartext = y['data-vartext']
+                varnames[varid] = vartext
+
+    res = soup.find_all(findOffers)
+    if not res: return None
 
     variants = {}
+    skuid = '0'
+    variant = ''
 
-    matches = re.search(r'(<div class="variant--group">.+?</div>)\s+</form>', content, re.DOTALL)
-    if matches:
-        xml = matches.group(1)
-        xml = re.sub(r'&', r'and', xml)
-        try:
-            xmldata = xmltodict.parse(xml)
-        except Exception:
-            logging.warning('xmltodict.parse error: ' + url)
-            return None
+    for x in res:
+        if varnames:
+            if not x.parent.parent.get('id'): return None
+            matches = re.search(r'(\d+)$', x.parent.parent['id'])
+            if matches:
+                skuid = matches.group(1)
+                variant = varnames[skuid]
 
-        skus = xmldata['div']['div']
-        if not isinstance(skus, list): skus = [skus]
-        for x in skus:
-            sku = x['input']
-            skuid = sku['@value']
-            variants[skuid] = {}
-            variants[skuid]['variant'] = sku['@title']
-            variants[skuid]['prodid'] = prodid
-            variants[skuid]['price'] = int(float(sku['@price'])*0.84)
-            variants[skuid]['currency'] = currency
-            variants[skuid]['store'] = store
-            variants[skuid]['url'] = url
-            variants[skuid]['name'] = name
-            variants[skuid]['instock'] = sku['@stock-color'] == '1'
-    else:
-        variants['0'] = {}
-        variants['0']['variant'] = ""
-        variants['0']['prodid'] = prodid
-        variants['0']['price'] = price
-        variants['0']['currency'] = currency
-        variants['0']['store'] = store
-        variants['0']['url'] = url
-        variants['0']['name'] = name
-        variants['0']['instock'] = instock
+        instock = None
+        price = None
+
+        for child in x.children:
+            if child.get('itemprop') == 'price':
+                price = child['content']
+            if child.get('itemprop') == 'availability':
+                instock = child['content'] == 'http://schema.org/InStock'
+
+        if instock is None or price is None: return None
+
+        variants[skuid] = {}
+        variants[skuid]['variant'] = variant
+        variants[skuid]['prodid'] = prodid
+        variants[skuid]['currency'] = 'EUR'
+        variants[skuid]['store'] = 'BD'
+        variants[skuid]['url'] = url
+        variants[skuid]['name'] = name
+        variants[skuid]['price'] = int(float(price))
+        variants[skuid]['instock'] = instock
 
     cacheVariants(variants)
     return variants
