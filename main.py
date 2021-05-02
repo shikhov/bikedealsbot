@@ -8,7 +8,7 @@ import urllib
 import urllib2
 import ast
 import xmltodict
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from time import sleep, time
 from datetime import datetime
 
@@ -169,6 +169,12 @@ class tgHandler(webapp2.RequestHandler):
             if chat_type == 'private':
                 showVariants(store='BD', url=url, chat_id=chat_id, message_id=message_id)
 
+        rg = re.search(r'(https://www\.bikeinn\.com/[^?&]+)', text)
+        if rg:
+            url = rg.group(1)
+            if chat_type == 'private' and chat_id == ADMINTGID:
+                showVariants(store='BINN', url=url, chat_id=chat_id, message_id=message_id)
+
         rg = re.search(ur'(https://www\.bike-components\.de/\S+p(\d+)\/)', text)
         if rg:
             url = rg.group(1)
@@ -253,7 +259,7 @@ def getVariants(store, url):
             variants[cache.skuid]['instock'] = cache.instock
         return variants
 
-    parseFunctions = {'CRC': parseCRC, 'BC': parseBC, 'B24': parseB24, 'BD': parseBD}
+    parseFunctions = {'CRC': parseCRC, 'BC': parseBC, 'B24': parseB24, 'BD': parseBD, 'BINN': parseBINN}
     return parseFunctions[store](url)
 
 
@@ -436,6 +442,102 @@ def parseB24(url):
     cacheVariants(variants)
     return variants
 
+
+def parseBINN(url):
+    
+
+    request = urllib2.Request(url)
+    try:
+        content = urllib2.urlopen(request).read()
+    except Exception:
+        return None
+
+    def findUrl(tag):
+        return tag.get('hreflang') == 'en'
+
+    def findName(tag):
+        return tag.name == 'meta' and tag.get('itemprop') == 'name'
+
+    def findVariants(tag):
+        return tag.parent.get('id') == 'tallas_detalle'
+
+    def findOffers(tag):
+        return tag.get('itemtype') == 'http://schema.org/Offer'
+
+    soup = BeautifulSoup(content, 'lxml')
+    res = soup.find_all(findUrl)
+    if not res: logging.debug('no URL')
+    if not res: return None
+
+    if not res[0].get('href'): return None
+    url = res[0].get('href')
+    logging.debug('URL: ' + url)
+
+    matches = re.search(r'/(\d+)/p$', url)
+    if not matches: logging.debug('no prodid')
+    if not matches: return None
+    prodid = matches.group(1)
+
+    request = urllib2.Request(url)
+    try:
+        content = urllib2.urlopen(request).read()
+    except Exception:
+        return None
+
+    soup = BeautifulSoup(content, 'lxml')
+
+    res = soup.find_all(findName)
+    if not res: logging.debug('no name')
+    if not res: return None
+    if not res[0].get('content'): return None
+    name = res[0]['content']
+
+    res = soup.find_all(findVariants)
+    if not res: logging.debug('no variants')
+    if not res: return None
+    varnames = {}
+    for child in res:
+        varid = child.get('value')
+        vartext = child.string
+        varnames[varid] = vartext
+
+    res = soup.find_all(findOffers)
+    if not res: logging.debug('no offers')
+    if not res: return None
+
+    logging.debug(res)
+
+    variants = {}
+    for x in res:
+        instock = None
+        price = None
+        for child in x.children:
+            if not isinstance(child, Tag): continue
+            if child.get('itemprop') == 'sku':
+                skuid = child['content']
+            if child.get('itemprop') == 'price':
+                price = child['content']
+            if child.get('itemprop') == 'availability':
+                instock = child['href'] == 'http://schema.org/InStock'
+            if child.get('itemprop') == 'priceCurrency':
+                currency = child['content']
+
+        if instock is None or price is None: logging.debug('no price or instock')
+
+        if instock is None or price is None: return None
+
+        variants[skuid] = {}
+        variants[skuid]['variant'] = varnames[skuid]
+        variants[skuid]['prodid'] = prodid
+        variants[skuid]['currency'] = currency
+        variants[skuid]['store'] = 'BINN'
+        variants[skuid]['url'] = url
+        variants[skuid]['name'] = name
+        variants[skuid]['price'] = int(float(price))
+        variants[skuid]['instock'] = instock
+
+    cacheVariants(variants)
+    return variants
 
 def parseBD(url):
     matches = re.search(r'(\d+)$', url)
