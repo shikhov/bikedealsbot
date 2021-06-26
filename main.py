@@ -16,12 +16,13 @@ import webapp2
 from google.appengine.ext import ndb
 from google.appengine.api import urlfetch
 
-from config import TOKEN, ADMINTGID
+from config import TOKEN, ADMINTGID, BESTDEALSCHATID
 
 APIURL = 'https://api.telegram.org/bot'
 CACHEMINUTES = 60
 ERRORMINTHRESHOLD = 10
 ERRORMAXTHRESHOLD = 300
+BESTDEALSMINPERCENTAGE = 15
 
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -582,6 +583,7 @@ def checkSKU():
             msgs[dbsku.chatid] = [msg]
 
     msgs = {}
+    bestdeals = []
     enabled_users = {}
     stores = {}
     now = int(time())
@@ -601,6 +603,10 @@ def checkSKU():
                     addMsg('🚫 Не в наличии\n' + skustring)
                 if sku['price'] < dbsku.price and sku['instock']:
                     addMsg('📉 Снижение цены!\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
+                    if dbsku.price != 0:
+                        percents = int((1 - sku['price']/float(dbsku.price))*100)
+                        if percents >= BESTDEALSMINPERCENTAGE:
+                            bestdeals.append(skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ') ' + str(percents) + '%')
                 if sku['price'] > dbsku.price and sku['instock']:
                     addMsg('📈 Повышение цены\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
 
@@ -623,6 +629,8 @@ def checkSKU():
             if e.reason == 'Forbidden':
                 disableUser(chatid)
         sleep(0.1)
+
+        paginatedTgMsg(bestdeals, BESTDEALSCHATID)
 
     for store in stores:
         if not stores[store]: tgMsg('Problem with ' + store + '!', chat_id=ADMINTGID)
