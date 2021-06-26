@@ -444,9 +444,9 @@ def parseB24(url):
 
 
 def parseBINN(url):
-    
+    headers = {'Cookie': 'id_pais=164'}
 
-    request = urllib2.Request(url)
+    request = urllib2.Request(url, None, headers)
     try:
         content = urllib2.urlopen(request).read()
     except Exception:
@@ -478,7 +478,7 @@ def parseBINN(url):
     if not matches: return None
     prodid = matches.group(1)
 
-    request = urllib2.Request(url)
+    request = urllib2.Request(url, None, headers)
     try:
         content = urllib2.urlopen(request).read()
     except Exception:
