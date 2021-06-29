@@ -21,7 +21,7 @@ from config import TOKEN, ADMINTGID, BESTDEALSCHATID
 APIURL = 'https://api.telegram.org/bot'
 CACHEMINUTES = 60
 ERRORMINTHRESHOLD = 10
-ERRORMAXTHRESHOLD = 300
+ERRORMAXDAYS = 180
 BESTDEALSMINPERCENTAGE = 15
 
 reload(sys)
@@ -210,7 +210,7 @@ def processCmdList(chat_id):
 
     for sku in skus:
         warn = '' if sku.errors <= ERRORMINTHRESHOLD else '⚠️ Ошибка (возможно, ссылка неактуальна)\n'
-        line = getSkuString(sku, ['store', 'url','icon']) + '\n' + warn + '<i>Удалить: /del_' + str(sku.key.id()) + '</i>'
+        line = getSkuString(sku, ['store', 'url', 'icon', 'price']) + '\n' + warn + '<i>Удалить: /del_' + str(sku.key.id()) + '</i>'
         text_array.append(line)
 
     paginatedTgMsg(text_array, chat_id)
@@ -534,7 +534,7 @@ def showVariants(store, url, chat_id, message_id):
         text_array.append(variants[first_skuid]['name'])
         for skuid in sorted(variants):
             sku = variants[skuid]
-            line = getSkuString(sku, ['icon']) + '\n<i>Добавить: /add_' + store.lower() + '_' +  sku['prodid'] + '_' + skuid + '</i>'
+            line = getSkuString(sku, ['icon', 'price']) + '\n<i>Добавить: /add_' + store.lower() + '_' +  sku['prodid'] + '_' + skuid + '</i>'
             text_array.append(line)
     else:
         text_array.append('Не смог найти цену 😧')
@@ -564,6 +564,7 @@ def getSkuString(sku, options):
     storename = ''
     urlname = ''
     icon = ''
+    pricetxt = ''
 
     if 'url' in options:
         urlname = '<a href="' + url + '">' + name + '</a>' + '\n'
@@ -571,8 +572,10 @@ def getSkuString(sku, options):
         icon = '✅ ' if instock else '🚫 '
     if 'store' in options:
         storename = '<code>[' + store + ']</code> '
+    if 'price' in options:
+        pricetxt = ' <b>' + price + ' ' + currency + '</b>'
 
-    return storename + urlname + icon + variant + ' <b>' + price + ' ' + currency + '</b>'
+    return storename + urlname + icon + variant + pricetxt
 
 
 def checkSKU():
@@ -583,7 +586,7 @@ def checkSKU():
             msgs[dbsku.chatid] = [msg]
 
     msgs = {}
-    bestdeals = []
+    bestdeals = {}
     enabled_users = {}
     stores = {}
     now = int(time())
@@ -596,7 +599,7 @@ def checkSKU():
             variants = getVariants(dbsku.store, dbsku.url)
             if variants and dbsku.skuid in variants:
                 sku = variants[dbsku.skuid]
-                skustring = getSkuString(sku, ['store', 'url'])
+                skustring = getSkuString(sku, ['store', 'url', 'price'])
                 if sku['instock'] and sku['instock'] != dbsku.instock:
                     addMsg('✅ Снова в наличии!\n' + skustring)
                 if not sku['instock'] and sku['instock'] != dbsku.instock:
@@ -606,7 +609,8 @@ def checkSKU():
                     if dbsku.price != 0:
                         percents = int((1 - sku['price']/float(dbsku.price))*100)
                         if percents >= BESTDEALSMINPERCENTAGE:
-                            bestdeals.append(skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ') ' + str(percents) + '%')
+                            bdkey = dbsku.store + dbsku.prodid + dbsku.skuid
+                            bestdeals[bdkey] = skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ') ' + str(percents) + '%'
                 if sku['price'] > dbsku.price and sku['instock']:
                     addMsg('📈 Повышение цены\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
 
@@ -630,7 +634,7 @@ def checkSKU():
                 disableUser(chatid)
         sleep(0.1)
 
-        paginatedTgMsg(bestdeals, BESTDEALSCHATID)
+    paginatedTgMsg(bestdeals.values(), BESTDEALSCHATID)
 
     for store in stores:
         if not stores[store]: tgMsg('Problem with ' + store + '!', chat_id=ADMINTGID)
@@ -742,6 +746,10 @@ class clearCacheHandler(webapp2.RequestHandler):
     def get(self):
         clearCacheVariants()
 
+class removeOldSKUHandler(webapp2.RequestHandler):
+    def get(self):
+        removeOldSKU()
+
 
 def getURL(store, prodid):
     entities = SKUcache.query(SKUcache.store == store, SKUcache.prodid == prodid).fetch()
@@ -826,6 +834,29 @@ def clearCacheVariants():
         cache.key.delete()
 
 
+def removeOldSKU():
+    banner = 'ℹ️ Следующие позиции были удалены из вашего списка в связи с недоступностью более ' + str(ERRORMAXDAYS) + ' дней:'
+    tsmax = int(time()) - ERRORMAXDAYS * 24 * 3600
+    entities = SKU.query(SKU.lastgoodts < tsmax).fetch()
+    msgs = {}
+    for entity in entities:
+        user = User.query(User.chatid == entity.chatid).fetch()[0]
+        if user.enable:
+            skustring = getSkuString(entity, ['store', 'url'])
+            if entity.chatid not in msgs:
+                msgs[entity.chatid] = [banner]
+            msgs[entity.chatid].append(skustring)
+        entity.key.delete()
+
+    for chatid in msgs:
+        try:
+            paginatedTgMsg(msgs[chatid], chatid)
+        except urllib2.HTTPError as e:
+            if e.reason == 'Forbidden':
+                disableUser(chatid)
+        sleep(0.1)
+
+
 def deleteSku(dbid):
     ndb.Key(SKU, dbid).delete()
 
@@ -860,5 +891,6 @@ app = webapp2.WSGIApplication([
     ('/', tgHandler),
     ('/checkprices', checkSKUHandler),
     ('/checkoffers', checkOffersHandler),
-    ('/clearcache', clearCacheHandler)
+    ('/clearcache', clearCacheHandler),
+    ('/removeoldsku', removeOldSKUHandler)
 ])
