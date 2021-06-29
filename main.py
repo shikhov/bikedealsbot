@@ -16,13 +16,12 @@ import webapp2
 from google.appengine.ext import ndb
 from google.appengine.api import urlfetch
 
-from config import TOKEN, ADMINTGID
+from config import TOKEN, ADMINTGID, BESTDEALSCHATID
 
 APIURL = 'https://api.telegram.org/bot'
 CACHEMINUTES = 60
 ERRORMINTHRESHOLD = 10
 ERRORMAXTHRESHOLD = 300
-BESTDEALSCHATID = -1001163172827
 BESTDEALSMINPERCENTAGE = 15
 
 reload(sys)
@@ -706,7 +705,7 @@ def checkSKU():
                     addMsg('🚫 Не в наличии\n' + skustring)
                 if sku['price'] < dbsku.price and sku['instock']:
                     addMsg('📉 Снижение цены!\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
-                    if dbsku.price != 0:
+                    if BESTDEALSCHATID != 0 and dbsku.price != 0:
                         percents = int((1 - sku['price']/float(dbsku.price))*100)
                         if percents >= BESTDEALSMINPERCENTAGE:
                             bestdeals.append(skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ') ' + str(percents) + '%')
