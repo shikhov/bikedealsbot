@@ -254,8 +254,7 @@ def getVariants(store, url):
             variants[cache.skuid]['instock'] = cache.instock
         return variants
 
-    parseFunctions = {'CRC': parseCRC, 'BC': parseBC, 'B24': parseB24, 'BD': parseBD}
-    return parseFunctions[store](url)
+    return globals()['parse' + store](url)
 
 
 def parseCRC(url):
