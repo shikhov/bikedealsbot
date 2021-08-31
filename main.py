@@ -16,18 +16,12 @@ import webapp2
 from google.appengine.ext import ndb
 from google.appengine.api import urlfetch
 
-from config import TOKEN, ADMINTGID, BESTDEALSCHATID
-
-APIURL = 'https://api.telegram.org/bot'
-CACHEMINUTES = 60
-ERRORMINTHRESHOLD = 10
-ERRORMAXDAYS = 180
-BESTDEALSMINPERCENTAGE = 15
-
 reload(sys)
 sys.setdefaultencoding('utf8')
 urlfetch.set_default_fetch_deadline(60)
 
+class Settings(ndb.Model):
+    value = ndb.StringProperty()
 
 class SKU(ndb.Model):
     prodid = ndb.StringProperty()
@@ -70,6 +64,22 @@ class Offer(ndb.Model):
     url = ndb.StringProperty()
     data = ndb.StringProperty()
     active = ndb.BooleanProperty(default=False)
+
+
+def getSettings(name):
+    entity = Settings.get_by_id(name)
+    if entity: return entity.value
+    return ''
+
+
+APIURL = 'https://api.telegram.org/bot'
+TOKEN = getSettings('TOKEN')
+ADMINCHATID = int(getSettings('ADMINCHATID'))
+BESTDEALSCHATID = int(getSettings('BESTDEALSCHATID'))
+BESTDEALSMINPERCENTAGE = int(getSettings('BESTDEALSMINPERCENTAGE'))
+CACHELIFETIME = int(getSettings('CACHELIFETIME'))
+ERRORMINTHRESHOLD = int(getSettings('ERRORMINTHRESHOLD'))
+ERRORMAXDAYS = int(getSettings('ERRORMAXDAYS'))
 
 
 def tgMsg(msg, chat_id, reply_to=0):
@@ -193,7 +203,7 @@ def processCmdDel(cmd, chat_id, message_id):
 
 def getVariants(store, url):
     variants = {}
-    tsnow = int(time()) - CACHEMINUTES * 60
+    tsnow = int(time()) - CACHELIFETIME * 60
     entities = SKUcache.query(SKUcache.store == store, SKUcache.url == url, SKUcache.timestamp >= tsnow).fetch()
     if entities:
         for cache in entities:
@@ -565,7 +575,7 @@ def checkSKU():
     paginatedTgMsg(bestdeals.values(), BESTDEALSCHATID)
 
     for store in stores:
-        if not stores[store]: tgMsg('Problem with ' + store + '!', chat_id=ADMINTGID)
+        if not stores[store]: tgMsg('Problem with ' + store + '!', chat_id=ADMINCHATID)
 
 
 def processCmd(message):
@@ -606,7 +616,7 @@ def processCmd(message):
 
 
 def processCmdBroadcast(cmd, chat_id):
-    if chat_id != ADMINTGID: return
+    if chat_id != ADMINCHATID: return
 
     tgMsg(msg="Начало рассылки", chat_id=chat_id)
     msg = cmd[3-len(cmd):]
@@ -623,7 +633,7 @@ def processCmdBroadcast(cmd, chat_id):
 
 
 def processCmdStat(chat_id):
-    if chat_id != ADMINTGID: return
+    if chat_id != ADMINCHATID: return
 
     users = str(len(User.query(User.enable == True).fetch()))
     userswsku = str(len(ndb.gql('SELECT DISTINCT chatid from SKU').fetch()))
@@ -661,10 +671,10 @@ class checkOffersHandler(webapp2.RequestHandler):
             if not offer.active:
                 offer.data = data
                 offer.active = True
-                tgMsg(msg=data + '\n' + url, chat_id=ADMINTGID)
+                tgMsg(msg=data + '\n' + url, chat_id=ADMINCHATID)
         else:
             if offer.active:
-                tgMsg(msg='ENDED: ' + offer.data + '\n' + url, chat_id=ADMINTGID)
+                tgMsg(msg='ENDED: ' + offer.data + '\n' + url, chat_id=ADMINCHATID)
             offer.active = False
 
         offer.put()
@@ -751,7 +761,7 @@ def cacheVariants(variants):
 
 
 def clearCacheVariants():
-    tsnow = int(time()) - CACHEMINUTES * 60
+    tsnow = int(time()) - CACHELIFETIME * 60
     entities = SKUcache.query(SKUcache.timestamp < tsnow).fetch()
     for cache in entities:
         cache.key.delete()
