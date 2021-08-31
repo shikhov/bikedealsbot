@@ -106,85 +106,39 @@ class tgHandler(webapp2.RequestHandler):
         chat_id = message['chat']['id']
         chat_type = message['chat']['type']
 
-        if chat_type == 'private':
-            logging.debug(json.dumps(body, indent=4).decode('unicode-escape'))
-        else:
+        if chat_type != 'private':
             logging.info(json.dumps(body, indent=4).decode('unicode-escape'))
-
-        if chat_type == 'private' and text.startswith('/'):
-            processCmd(message)
             return
 
-        price = None
-        itemname = None
+        logging.debug(json.dumps(body, indent=4).decode('unicode-escape'))
+
+        if text.startswith('/'):
+            processCmd(message)
+            return
 
         rg = re.search(ur'(https?://www\.chainreactioncycles\.com/\S+/rp-prod(\d+))', text)
         if rg:
             url = 'https://www.chainreactioncycles.com/en/rp-prod' + rg.group(2)
-            if chat_type == 'private':
-                showVariants(store='CRC', url=url, chat_id=chat_id, message_id=message_id)
-            else:
-                product = parseCRC2(url)
-                if product:
-                    itemname = product['name']
-                    price = product['textprice']
-
-        rg = re.search(ur'(https?://www\.wiggle\.(co\.uk|com|ru)/)(\S+)', text)
-        if rg:
-            urltmp = rg.group(1) + rg.group(3)
-            itemurl = urllib.quote(urltmp.encode('utf-8'), ':/%') + '?curr=USD&dest=24'
-            opener = urllib2.build_opener()
-            content = opener.open(itemurl).read()
-            matches = re.search(ur'<h1 id="productTitle" class="bem-heading--1" itemprop="name">(.+?)</h1>.+?<span class="js-unit-price" data-default-value="(\$[\d,]+)(.+?(\$[\d,]+))?', content, re.DOTALL)
-            if matches:
-                if matches.group(2) == matches.group(4):
-                    price = matches.group(2)
-                else:
-                    price = matches.group(2) + " - " + matches.group(4)
-                itemname = matches.group(1)
+            showVariants(store='CRC', url=url, chat_id=chat_id, message_id=message_id)
+            return
 
         rg = re.search(ur'(https://www\.bike24\.com/p2(\d+)\.html)', text)
         if rg:
             url = rg.group(1)
-            if chat_type == 'private':
-                showVariants(store='B24', url=url, chat_id=chat_id, message_id=message_id)
-            else:
-                if '?' in rg.group(1):
-                    itemurl = rg.group(1) + ';country=23;action=locale_select'
-                else:
-                    itemurl = rg.group(1) + '?country=23;action=locale_select'
-                try:
-                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64)'}
-                    request = urllib2.Request(url=itemurl, headers=headers)
-                    content = urllib2.urlopen(request).read()
-                    matches = re.search(ur'<h1 class="col-md-14 col-lg-14" itemprop="name">(.+?)</h1>.+?<span content="(\d+).+?" itemprop="price" class="text-value js-price-value">', content, re.DOTALL)
-                    if matches:
-                        itemname = matches.group(1)
-                        price = matches.group(2) + ur' €'
-                except urllib2.HTTPError:
-                    pass
+            showVariants(store='B24', url=url, chat_id=chat_id, message_id=message_id)
+            return
 
         rg = re.search(r'(https://www\.bike-discount\.de)/.+?/.+?/([^?&]+)', text)
         if rg:
             url = rg.group(1) + '/en/buy/' + rg.group(2)
-            if chat_type == 'private':
-                showVariants(store='BD', url=url, chat_id=chat_id, message_id=message_id)
+            showVariants(store='BD', url=url, chat_id=chat_id, message_id=message_id)
+            return
 
         rg = re.search(ur'(https://www\.bike-components\.de/\S+p(\d+)\/)', text)
         if rg:
             url = rg.group(1)
-            if chat_type == 'private':
-                showVariants(store='BC', url=url, chat_id=chat_id, message_id=message_id)
-            else:
-                opener = urllib2.build_opener()
-                content = opener.open(url).read()
-                matches = re.search(ur'data-product-name="(.+?)".+data-price="(.+?)"', content)
-                if matches:
-                    itemname = matches.group(1)
-                    price = matches.group(2)
-
-        if price and itemname and chat_type != 'private':
-            tgMsg(msg=itemname + '\n' + price, chat_id=chat_id, reply_to=message_id)
+            showVariants(store='BC', url=url, chat_id=chat_id, message_id=message_id)
+            return
 
 
 def processCmdStart(chat_id, username, first_name, last_name):
@@ -308,35 +262,6 @@ def parseCRC(url):
 
         cacheVariants(variants)
         return variants
-    return None
-
-
-def parseCRC2(url):
-    headerslist = {
-        'RUB': {'User-Agent': 'Mozilla/5.0', 'Cookie': 'countryCode=RU; languageCode=en; currencyCode=RUB'},
-        'GBP': {'User-Agent': 'Mozilla/5.0', 'Cookie': 'countryCode=GB; languageCode=en; currencyCode=GBP'}}
-
-    url = urllib.quote(url.encode('utf-8'), ':/%')
-
-    for currency in headerslist:
-        request = urllib2.Request(url, None, headerslist[currency])
-        content = urllib2.urlopen(request).read()
-        matches = re.search(ur'window\.universal_variable\s+=\s+(.+?)</script>', content, re.DOTALL)
-        if not matches: continue
-
-        universal = ast.literal_eval(matches.group(1))
-        if 'product' in universal and universal['product']['price']:
-            product = universal['product']
-            product['currency'] = currency
-            product['store'] = 'CRC'
-            product['url'] = 'https://www.chainreactioncycles.com' + product['url']
-            product['name'] = product['manufacturer'] + ' ' + product['name']
-            textprice = str(product['price'])
-            product['lowprice'] = int(re.sub(r'^(\d+).*', r'\1', textprice))
-            textprice = re.sub(r'\.\d+', '', textprice)
-            textprice = re.sub('-', ' - ', textprice)
-            product['textprice'] = textprice + ' ' + product['currency']
-            return product
     return None
 
 
@@ -518,6 +443,10 @@ def parseBD(url):
 
 
 def showVariants(store, url, chat_id, message_id):
+    if len(SKU.query(SKU.chatid == chat_id).fetch()) >= 100:
+        tgMsg(msg='⛔️ Увы, в данный момент добавить можно не более 100 позиций', chat_id=chat_id, reply_to=message_id)
+        return
+
     tgresult = tgMsg(msg='🔎 Ищу информацию о товаре...', chat_id=chat_id, reply_to=message_id)
     tgmsgid = tgresult['result']['message_id']
     text_array = []
@@ -594,36 +523,36 @@ def checkSKU():
         enabled_users[user.chatid] = 'foo'
 
     for dbsku in SKU.query().fetch():
-        if dbsku.chatid in enabled_users:
-            variants = getVariants(dbsku.store, dbsku.url)
-            if variants and dbsku.skuid in variants:
-                sku = variants[dbsku.skuid]
-                skustring = getSkuString(sku, ['store', 'url', 'price'])
-                if sku['instock'] and sku['instock'] != dbsku.instock:
-                    addMsg('✅ Снова в наличии!\n' + skustring)
-                if not sku['instock'] and sku['instock'] != dbsku.instock:
-                    addMsg('🚫 Не в наличии\n' + skustring)
-                if sku['price'] < dbsku.price and sku['instock']:
-                    addMsg('📉 Снижение цены!\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
-                    if dbsku.price != 0:
-                        percents = int((1 - sku['price']/float(dbsku.price))*100)
-                        if percents >= BESTDEALSMINPERCENTAGE:
-                            bdkey = dbsku.store + dbsku.prodid + dbsku.skuid
-                            bestdeals[bdkey] = skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ') ' + str(percents) + '%'
-                if sku['price'] > dbsku.price and sku['instock']:
-                    addMsg('📈 Повышение цены\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
+        if dbsku.chatid not in enabled_users: continue
+        variants = getVariants(dbsku.store, dbsku.url)
+        if variants and dbsku.skuid in variants:
+            sku = variants[dbsku.skuid]
+            skustring = getSkuString(sku, ['store', 'url', 'price'])
+            if sku['instock'] and sku['instock'] != dbsku.instock:
+                addMsg('✅ Снова в наличии!\n' + skustring)
+            if not sku['instock'] and sku['instock'] != dbsku.instock:
+                addMsg('🚫 Не в наличии\n' + skustring)
+            if sku['price'] < dbsku.price and sku['instock']:
+                addMsg('📉 Снижение цены!\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
+                if dbsku.price != 0:
+                    percents = int((1 - sku['price']/float(dbsku.price))*100)
+                    if percents >= BESTDEALSMINPERCENTAGE:
+                        bdkey = dbsku.store + dbsku.prodid + dbsku.skuid
+                        bestdeals[bdkey] = skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ') ' + str(percents) + '%'
+            if sku['price'] > dbsku.price and sku['instock']:
+                addMsg('📈 Повышение цены\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
 
-                dbsku.instock = sku['instock']
-                dbsku.price = sku['price']
-                dbsku.errors = 0
-                dbsku.lastgoodts = now
-                stores[dbsku.store] = True
-            else:
-                dbsku.errors += 1
-                if dbsku.store not in stores: stores[dbsku.store] = False
+            dbsku.instock = sku['instock']
+            dbsku.price = sku['price']
+            dbsku.errors = 0
+            dbsku.lastgoodts = now
+            stores[dbsku.store] = True
+        else:
+            dbsku.errors += 1
+            if dbsku.store not in stores: stores[dbsku.store] = False
 
-            dbsku.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
-            dbsku.put()
+        dbsku.lastcheck = datetime.now().strftime('%d.%m.%Y %H:%M')
+        dbsku.put()
 
     for chatid in msgs:
         try:
@@ -757,29 +686,27 @@ def getURL(store, prodid):
     return None
 
 
+def sendOrEditMsg(msg, chat_id, message_id, msgtype):
+    if msgtype == 'reply':
+        tgMsg(msg=msg, chat_id=chat_id, reply_to=message_id)
+    if msgtype == 'edit':
+        tgEditMsg(text=msg, chat_id=chat_id, msg_id=message_id)
+
+
 def addVariant(store, prodid, skuid, chat_id, message_id, msgtype):
     entities = SKU.query(SKU.store == store, SKU.chatid == chat_id, SKU.prodid == prodid, SKU.skuid == skuid).fetch()
     if entities:
-        if msgtype == 'reply':
-            tgMsg(msg='️☝️ Товар уже есть в вашем списке', chat_id=chat_id, reply_to=message_id)
-        if msgtype == 'edit':
-            tgEditMsg(text='️☝️ Товар уже есть в вашем списке', chat_id=chat_id, msg_id=message_id)
+        sendOrEditMsg('️☝️ Товар уже есть в вашем списке', chat_id, message_id, msgtype)
         return
 
     url = getURL(store, prodid)
     if not url:
-        if msgtype == 'reply':
-            tgMsg(msg='Какая-то ошибка 😧', chat_id=chat_id, reply_to=message_id)
-        if msgtype == 'edit':
-            tgEditMsg(text='️Какая-то ошибка 😧', chat_id=chat_id, msg_id=message_id)
+        sendOrEditMsg('Какая-то ошибка 😧', chat_id, message_id, msgtype)
         return
 
     variants = getVariants(store, url)
     if skuid not in variants:
-        if msgtype == 'reply':
-            tgMsg(msg='Какая-то ошибка 😧', chat_id=chat_id, reply_to=message_id)
-        if msgtype == 'edit':
-            tgEditMsg(text='️Какая-то ошибка 😧', chat_id=chat_id, msg_id=message_id)
+        sendOrEditMsg('Какая-то ошибка 😧', chat_id, message_id, msgtype)
         return
 
     sku = variants[skuid]
@@ -802,10 +729,7 @@ def addVariant(store, prodid, skuid, chat_id, message_id, msgtype):
     dispname = dbsku.variant
     if not dispname: dispname = dbsku.name
 
-    if msgtype == 'reply':
-        tgMsg(msg=dispname + '\n✔️ Добавлено к отслеживанию', chat_id=chat_id, reply_to=message_id)
-    if msgtype == 'edit':
-        tgEditMsg(text=dispname + '\n✔️ Добавлено к отслеживанию', chat_id=chat_id, msg_id=message_id)
+    sendOrEditMsg(dispname + '\n✔️ Добавлено к отслеживанию', chat_id, message_id, msgtype)
 
 
 def cacheVariants(variants):

@@ -2,6 +2,10 @@ runtime: python27
 api_version: 1
 threadsafe: yes
 
+basic_scaling:
+  max_instances: 10
+  idle_timeout: 300s
+
 handlers:
 - url: .*
   script: main.app
