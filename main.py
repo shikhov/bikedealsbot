@@ -80,6 +80,7 @@ BESTDEALSMINPERCENTAGE = int(getSettings('BESTDEALSMINPERCENTAGE'))
 CACHELIFETIME = int(getSettings('CACHELIFETIME'))
 ERRORMINTHRESHOLD = int(getSettings('ERRORMINTHRESHOLD'))
 ERRORMAXDAYS = int(getSettings('ERRORMAXDAYS'))
+MAXITEMSPERUSER = int(getSettings('MAXITEMSPERUSER'))
 
 
 def tgMsg(msg, chat_id, reply_to=0):
@@ -453,10 +454,6 @@ def parseBD(url):
 
 
 def showVariants(store, url, chat_id, message_id):
-    if len(SKU.query(SKU.chatid == chat_id).fetch()) >= 100:
-        tgMsg(msg='⛔️ Увы, в данный момент добавить можно не более 100 позиций', chat_id=chat_id, reply_to=message_id)
-        return
-
     tgresult = tgMsg(msg='🔎 Ищу информацию о товаре...', chat_id=chat_id, reply_to=message_id)
     tgmsgid = tgresult['result']['message_id']
     text_array = []
@@ -704,6 +701,10 @@ def sendOrEditMsg(msg, chat_id, message_id, msgtype):
 
 
 def addVariant(store, prodid, skuid, chat_id, message_id, msgtype):
+    if len(SKU.query(SKU.chatid == chat_id).fetch()) >= MAXITEMSPERUSER:
+        sendOrEditMsg('⛔️ Увы, в данный момент добавить можно не более ' + str(MAXITEMSPERUSER) + ' позиций', chat_id, message_id, msgtype)
+        return
+
     entities = SKU.query(SKU.store == store, SKU.chatid == chat_id, SKU.prodid == prodid, SKU.skuid == skuid).fetch()
     if entities:
         sendOrEditMsg('️☝️ Товар уже есть в вашем списке', chat_id, message_id, msgtype)
