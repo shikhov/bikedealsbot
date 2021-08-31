@@ -572,7 +572,7 @@ def checkSKU():
                 disableUser(chatid)
         sleep(0.1)
 
-    paginatedTgMsg(bestdeals.values(), BESTDEALSCHATID)
+    if BESTDEALSCHATID: paginatedTgMsg(bestdeals.values(), BESTDEALSCHATID)
 
     for store in stores:
         if not stores[store]: tgMsg('Problem with ' + store + '!', chat_id=ADMINCHATID)
