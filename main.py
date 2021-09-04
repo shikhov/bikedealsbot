@@ -68,8 +68,8 @@ class Offer(ndb.Model):
 
 def getSettings(name):
     entity = Settings.get_by_id(name)
-    if entity: return entity.value
-    return ''
+    if not entity: raise ValueError('Setting ' + name + ' doesn\'t exist!')
+    return entity.value
 
 
 APIURL = 'https://api.telegram.org/bot'
@@ -196,7 +196,7 @@ def processCmdDel(cmd, chat_id, message_id):
     params = cmd.split('_')
     if len(params) == 2:
         dbid = int(params[1])
-        deleteSku(dbid=dbid)
+        ndb.Key(SKU, dbid).delete()
         tgMsg(msg='️Удалено', chat_id=chat_id)
     else:
         tgMsg(msg='Непонятная команда 😧', chat_id=chat_id, reply_to=message_id)
@@ -789,10 +789,6 @@ def removeOldSKU():
             if e.reason == 'Forbidden':
                 disableUser(chatid)
         sleep(0.1)
-
-
-def deleteSku(dbid):
-    ndb.Key(SKU, dbid).delete()
 
 
 def disableUser(chatid):
