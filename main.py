@@ -632,6 +632,7 @@ def processCmdBroadcast(cmd, chat_id):
 def processCmdStat(chat_id):
     if chat_id != ADMINCHATID: return
 
+    usersall = str(len(User.query().fetch()))
     users = str(len(User.query(User.enable == True).fetch()))
     userswsku = str(len(ndb.gql('SELECT DISTINCT chatid from SKU').fetch()))
     sku = str(len(SKU.query().fetch()))
@@ -641,9 +642,10 @@ def processCmdStat(chat_id):
     bd = str(len(SKU.query(SKU.store == 'BD').fetch()))
 
     msg = ''
-    msg += '<b>Users:</b> ' + users + '\n'
+    msg += '<b>Total users:</b> ' + usersall + '\n'
+    msg += '<b>Enabled users:</b> ' + users + '\n'
     msg += '<b>Users with SKU:</b> ' + userswsku + '\n'
-    msg += '<b>SKU:</b> ' + sku + '\n'
+    msg += '<b>Total SKU:</b> ' + sku + '\n'
     msg += '<b>CRC:</b> ' + crc + '\n'
     msg += '<b>BC:</b> ' + bc + '\n'
     msg += '<b>B24:</b> ' + b24 + '\n'
