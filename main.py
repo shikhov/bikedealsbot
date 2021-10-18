@@ -77,6 +77,7 @@ TOKEN = getSettings('TOKEN')
 ADMINCHATID = int(getSettings('ADMINCHATID'))
 BESTDEALSCHATID = int(getSettings('BESTDEALSCHATID'))
 BESTDEALSMINPERCENTAGE = int(getSettings('BESTDEALSMINPERCENTAGE'))
+BESTDEALSWARNPERCENTAGE = int(getSettings('BESTDEALSWARNPERCENTAGE'))
 CACHELIFETIME = int(getSettings('CACHELIFETIME'))
 ERRORMINTHRESHOLD = int(getSettings('ERRORMINTHRESHOLD'))
 ERRORMAXDAYS = int(getSettings('ERRORMAXDAYS'))
@@ -546,6 +547,7 @@ def checkSKU():
                     if percents >= BESTDEALSMINPERCENTAGE:
                         bdkey = dbsku.store + dbsku.prodid + dbsku.skuid
                         bestdeals[bdkey] = skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ') ' + str(percents) + '%'
+                        if percents >= BESTDEALSWARNPERCENTAGE: bestdeals[bdkey] = bestdeals[bdkey] + '‼️'
             if sku['price'] > dbsku.price and sku['instock']:
                 addMsg('📈 Повышение цены\n' + skustring + ' (было: ' + str(dbsku.price) + ' ' + dbsku.currency + ')')
 
@@ -614,6 +616,7 @@ def processCmd(message):
 
 def processCmdBroadcast(cmd, chat_id):
     if chat_id != ADMINCHATID: return
+    return # full rewrite needed
 
     tgMsg(msg="Начало рассылки", chat_id=chat_id)
     msg = cmd[3-len(cmd):]
@@ -718,7 +721,7 @@ def addVariant(store, prodid, skuid, chat_id, message_id, msgtype):
         return
 
     variants = getVariants(store, url)
-    if skuid not in variants:
+    if not variants or skuid not in variants:
         sendOrEditMsg('Какая-то ошибка 😧', chat_id, message_id, msgtype)
         return
 
