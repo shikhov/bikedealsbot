@@ -11,6 +11,7 @@ import xmltodict
 from bs4 import BeautifulSoup
 from time import sleep, time
 from datetime import datetime
+from hashlib import md5
 
 import webapp2
 from google.appengine.ext import ndb
@@ -59,6 +60,7 @@ class User(ndb.Model):
     last_name = ndb.StringProperty()
     enable = ndb.BooleanProperty()
     info = ndb.StringProperty()
+    broadcasts = ndb.StringProperty(repeated=True)
 
 class Offer(ndb.Model):
     url = ndb.StringProperty()
@@ -602,7 +604,7 @@ def processCmd(message):
         processCmdDel(cmd=text, chat_id=chat_id, message_id=message_id)
         return
 
-    if text.startswith('/bc'):
+    if text.startswith('/bc') and len(text) > 3:
         processCmdBroadcast(cmd=text, chat_id=chat_id)
         return
 
@@ -616,20 +618,27 @@ def processCmd(message):
 
 def processCmdBroadcast(cmd, chat_id):
     if chat_id != ADMINCHATID: return
-    return # full rewrite needed
 
-    tgMsg(msg="Начало рассылки", chat_id=chat_id)
+    tgMsg('🟢 Начало рассылки', chat_id)
     msg = cmd[3-len(cmd):]
+    msg_hash = md5(msg).hexdigest()
+    count = 0
     for user in User.query(User.enable == True).fetch():
+        if msg_hash in user.broadcasts: continue
         try:
-            tgMsg(msg=msg, chat_id=user.chatid)
-            user.info = 'Sent ' + datetime.now().strftime('%d.%m.%Y %H:%M')
+            tgMsg(msg, user.chatid)
+            user.broadcasts.append(msg_hash)
             user.put()
         except urllib2.HTTPError as e:
             if e.reason == 'Forbidden':
                 disableUser(user.chatid)
+
+        count += 1
+        if count % 100 == 0:
+            tgMsg('Обработано: ' + str(count), chat_id)
         sleep(0.5)
-    tgMsg(msg="Окончание рассылки", chat_id=chat_id)
+
+    tgMsg('🔴 Окончание рассылки', chat_id)
 
 
 def processCmdStat(chat_id):
