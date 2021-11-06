@@ -7,7 +7,6 @@ import sys
 import urllib
 import urllib2
 import ast
-import xmltodict
 from bs4 import BeautifulSoup
 from time import sleep, time
 from datetime import datetime
@@ -321,12 +320,30 @@ def parseB24(url):
     if not matches: return None
 
     jsdata = json.loads(matches.group(1).decode('unicode-escape'))
-    if 'productPrice' not in jsdata: return None
-    price = int(jsdata['productPrice'])
-    prodid = str(jsdata['productId'])
-    name = jsdata['productName'].replace('\/', '/')
-    variant = jsdata['productVariant'].replace('\/', '/')
-    currency = jsdata['currencyCode']
+    if 'productOptionsAvailability' not in jsdata: return None
+
+    instock = jsdata['isAvailable']
+    availdict = {}
+    for entry in jsdata['productOptionsAvailability']:
+        arr = entry.replace('\/', '/').split('|')
+        varname = arr[0].replace(':', '|')
+        varcount = arr[1]
+        availdict[varname] = varcount
+
+    def findDataProps(tag):
+        return tag.name == 'div' and tag.get('id') == 'add-to-cart'
+
+    soup = BeautifulSoup(content, 'lxml')
+    res = soup.find_all(findDataProps)
+    if not res: return None
+    if not res[0].get('data-props'): return None
+
+    jsdata = json.loads(res[0]['data-props'])
+    price = int(float(jsdata['gtmData']['price']))
+    prodid = str(jsdata['gtmData']['id'])
+    name = jsdata['gtmData']['name'].replace('\/', '/')
+    variant = jsdata['gtmData']['variant'].replace('\/', '/')
+    currency = jsdata['productDetailPrice']['currencyCode']
 
     namesplit = name.split(' - ')
     if len(namesplit) > 1:
@@ -335,32 +352,21 @@ def parseB24(url):
 
     variants = {}
 
-    matches = re.search(r'(<select class="form-control js-product-option-select".+?</select>)', content, re.DOTALL)
-    if matches:
-        xml = matches.group(1).decode('unicode-escape')
-        xml = xml.replace('&euro;', '')
-        try:
-            xmldata = xmltodict.parse(xml)
-        except Exception:
-            return None
-        skus = xmldata['select']['option']
-        if not isinstance(skus, list): skus = [skus]
-
-        for sku in skus:
-            if int(sku['@value']) < 0: continue
-            skuid = sku['@value']
+    if jsdata['productOptionList']:
+        for sku in jsdata['productOptionList'][0]['optionValueList']:
+            skuid = str(sku['id'])
             variants[skuid] = {}
-            vartext = re.sub(r' - add.+', '', sku['#text'])
-            vartext = vartext.replace('not deliverable: ', '')
+            vartext = sku['name'].replace('not deliverable: ', '').replace(' - add {SURCHARGE}', '')
+            variants[skuid]['instock'] = False
+            if vartext in availdict:
+                variants[skuid]['instock'] = (availdict[vartext] != '0')
             variants[skuid]['variant'] = ((variant + ', ' if variant else '') + vartext).replace('\/', '/').strip()
             variants[skuid]['prodid'] = prodid
-            if '@data-surcharge' in sku: price = int(price + float(sku['@data-surcharge']))
-            variants[skuid]['price'] = price
+            variants[skuid]['price'] = price + int(sku['surcharge'])
             variants[skuid]['currency'] = currency
             variants[skuid]['store'] = 'B24'
             variants[skuid]['url'] = url
             variants[skuid]['name'] = name
-            variants[skuid]['instock'] = sku['@data-stock-current'] != '0'
     else:
         variants['0'] = {}
         variants['0']['variant'] = variant
@@ -370,7 +376,7 @@ def parseB24(url):
         variants['0']['store'] = 'B24'
         variants['0']['url'] = url
         variants['0']['name'] = name
-        variants['0']['instock'] = jsdata['isAvailable']
+        variants['0']['instock'] = instock
 
     cacheVariants(variants)
     return variants

@@ -4,7 +4,7 @@ threadsafe: yes
 
 basic_scaling:
   max_instances: 1
-  idle_timeout: 300s
+  idle_timeout: 60s
 
 handlers:
 - url: .*
